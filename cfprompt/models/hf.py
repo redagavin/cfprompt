@@ -217,8 +217,100 @@ class HFModel(Model):
         )
         return torch.device("cpu")
 
-    def generate(self, prompts, per_prompt_seeds=None):
-        raise NotImplementedError("Implemented in Task 3.4")
+    def generate(
+        self,
+        prompts,
+        per_prompt_seeds=None,
+        do_sample: bool = False,
+        temperature: float = 1.0,
+    ):
+        underlying = self._tokenizer_wrapper._tokenizer
+        n = len(prompts)
+        if per_prompt_seeds is not None and len(per_prompt_seeds) != n:
+            raise ValueError(
+                f"per_prompt_seeds length {len(per_prompt_seeds)} does not "
+                f"match number of prompts {n}"
+            )
+
+        sampling_device = self._resolve_sampling_device()
+
+        def _decode_one_batch(chunk, seeds_chunk=None):
+            """Run a forward pass on one chunk and decode the new tokens.
+            Padding is LEFT-side (configured in HFTokenizer.__post_init__),
+            so each row's prompt ends at column -1 and `prompt_len` is
+            constant across rows in the batch (= input_ids.shape[1]).
+            """
+            enc = underlying(
+                chunk,
+                return_tensors="pt",
+                padding=True,
+                truncation=False,
+                add_special_tokens=False,
+            )
+            input_ids = enc["input_ids"].to(sampling_device)
+            attention_mask = enc["attention_mask"].to(sampling_device)
+            prompt_len = input_ids.shape[1]
+            gen_kwargs = dict(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=self.max_new_tokens,
+                do_sample=do_sample,
+                pad_token_id=underlying.pad_token_id or underlying.eos_token_id,
+            )
+            if do_sample:
+                gen_kwargs["temperature"] = temperature
+            with torch.no_grad():
+                out_ids = self._model.generate(**gen_kwargs)
+            new_tokens = out_ids[:, prompt_len:]
+            return [
+                underlying.decode(row, skip_special_tokens=True)
+                for row in new_tokens
+            ]
+
+        # Stochastic decoding with heterogeneous per-prompt seeds -> batch=1
+        # with fork_rng so seed setting doesn't bleed into the rest of the
+        # process. Greedy or no-seeds -> batched.
+        results: list[str] = []
+        if do_sample and per_prompt_seeds is not None:
+            for i, prompt in enumerate(prompts):
+                seed_i = int(per_prompt_seeds[i])
+                if sampling_device.type == "cuda":
+                    cuda_idx = (
+                        sampling_device.index
+                        if sampling_device.index is not None
+                        else torch.cuda.current_device()
+                    )
+                    cuda_devices = [cuda_idx]
+                else:
+                    cuda_idx = None
+                    cuda_devices = []
+                with torch.random.fork_rng(devices=cuda_devices):
+                    torch.manual_seed(seed_i)
+                    if cuda_devices:
+                        # `torch.cuda.manual_seed` seeds the CURRENT device,
+                        # not necessarily `cuda_idx`. Under multi-GPU
+                        # (sampling on cuda:1 while current_device==0), we
+                        # must explicitly switch the current device so the
+                        # seed lands on the device whose RNG we forked.
+                        # NOT `manual_seed_all` — that would seed all CUDA
+                        # devices, mutating state we did NOT fork (= leak).
+                        with torch.cuda.device(cuda_idx):
+                            torch.cuda.manual_seed(seed_i)
+                    results.extend(_decode_one_batch([prompt]))
+        else:
+            # Greedy decoding (deterministic) or no seeds: batched.
+            if do_sample is False and per_prompt_seeds is not None:
+                _logger.debug(
+                    "HFModel.generate: per_prompt_seeds provided but "
+                    "do_sample=False; seeds are recorded in the inference "
+                    "cache key but do not affect outputs (forward pass is "
+                    "deterministic)."
+                )
+            bs = self.batch_size
+            for start in range(0, n, bs):
+                chunk = prompts[start : start + bs]
+                results.extend(_decode_one_batch(chunk))
+        return results
 
     def score_classes(self, prompts, classes, per_prompt_seeds=None):
         # Step A: resolve first-token id for each class (with prefix).
