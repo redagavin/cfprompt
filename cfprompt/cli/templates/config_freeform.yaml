@@ -1,0 +1,27 @@
+data: data/your_data.csv
+perturb_column: question
+target_perturbation: perturbations:my_perturbation
+extract_label: perturbations:extract_letter
+
+prompt_template: |
+  Question: {question}
+  Answer:
+
+target_model:
+  type: HFModel
+  name_or_path: meta-llama/Llama-3.2-1B
+
+paraphrase_model:
+  type: OpenAIModel
+  name: gpt-4.1
+
+tolerance: 0.5
+max_retries: 50
+
+cache_dir: ./cache
+seed: 42
+n_bootstrap: 1000
+
+metrics: [flip_rate, mi]
+
+output: results.xlsx
