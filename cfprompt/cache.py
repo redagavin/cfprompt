@@ -6,9 +6,15 @@ This module owns:
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
+import os
+import pickle
 import string
+import tempfile
+import time
+from pathlib import Path
 from typing import Any
 
 from .exceptions import ConfigError
@@ -198,3 +204,62 @@ def inference_cache_key(
         sort_keys=True,
     ).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()
+
+
+class DiskCache:
+    """Pickle-backed, hash-prefix-sharded, atomic-write cache.
+
+    Trust caveat: the cache uses pickle. Loading a cache directory written
+    by another (untrusted) process is equivalent to running their code.
+    Treat cache_dir as user-private. See spec §6.6.
+    """
+
+    _MISS = object()
+
+    def __init__(self, cache_dir: str | Path, namespace: str) -> None:
+        self.root = Path(cache_dir) / namespace
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    def _path(self, key: str) -> Path:
+        if len(key) < 4:
+            raise ValueError(f"cache key too short: {key!r}")
+        return self.root / key[:2] / key[2:4] / f"{key}.pkl"
+
+    def get(self, key: str, default=None):
+        """Read the cached value at `key`. Returns `default` (None by default,
+        matching dict-like convention) ONLY when the file does not exist. A
+        successfully-cached `None` value is returned as `None` by default —
+        which is indistinguishable from a miss. Call sites that need to
+        disambiguate (e.g., `_run_inference` storing `None` for
+        OpenAI dynamic missing-class) pass `default=DiskCache._MISS`."""
+        path = self._path(key)
+        for _attempt in range(2):
+            try:
+                with open(path, "rb") as f:
+                    return pickle.load(f)
+            except FileNotFoundError:
+                return default
+            except (EOFError, pickle.UnpicklingError):
+                time.sleep(0.05)
+        return default
+
+    def has(self, key: str) -> bool:
+        """Cheap presence check (no deserialization)."""
+        return self._path(key).exists()
+
+    def set(self, key: str, value) -> None:
+        path = self._path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            prefix=f"{key}.",
+            suffix=".tmp",
+            dir=str(path.parent),
+        )
+        try:
+            with os.fdopen(tmp_fd, "wb") as f:
+                pickle.dump(value, f)
+            os.replace(tmp_path, path)
+        except Exception:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp_path)
+            raise
