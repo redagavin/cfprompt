@@ -9,10 +9,12 @@ See spec §5.5 for the auto-pick rule:
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 
 import numpy as np
 from scipy import stats as scipy_stats
 
+from .exceptions import DegenerateMetricError
 from .report import TestResult
 
 
@@ -70,5 +72,138 @@ def paired_t(
             "degenerate": False,
             "mean_diff": mean_diff,
             "std_diff": std_diff,
+        },
+    )
+
+
+def bootstrap_diff(
+    labels_orig: np.ndarray,
+    labels_target: np.ndarray,
+    labels_baseline: np.ndarray,
+    metric_fn: Callable[[np.ndarray, np.ndarray], float],
+    metric_name: str,
+    n_bootstrap: int = 1000,
+    seed: int = 42,
+) -> TestResult:
+    """Paired bootstrap on metric(target) - metric(baseline).
+
+    See spec §5.5 for the formula:
+        p_value = min(1.0, 2.0 * min(P(diff <= 0), P(diff >= 0)))
+    matching scripts/compute_medqa_flip_rate_bootstrap.py.
+    """
+    labels_orig = np.asarray(labels_orig)
+    labels_target = np.asarray(labels_target)
+    labels_baseline = np.asarray(labels_baseline)
+    n = len(labels_orig)
+
+    rng = np.random.default_rng(seed)
+
+    try:
+        observed_target = metric_fn(labels_orig, labels_target)
+        observed_baseline = metric_fn(labels_orig, labels_baseline)
+    except DegenerateMetricError as e:
+        return TestResult(
+            metric=metric_name,
+            test="bootstrap",
+            statistic=None,
+            p_value=1.0,
+            p_value_kind="two-sided",
+            ci_low=None,
+            ci_high=None,
+            ci_kind=None,
+            n=n,
+            extra={
+                "degenerate": True,
+                "reason": f"observed_metric_undefined: {e}",
+                "n_resamples": n_bootstrap,
+                "n_used_resamples": 0,
+                "n_dropped_resamples": 0,
+                "bootstrap_unstable": False,
+                "observed_delta": None,
+            },
+        )
+    observed_delta = observed_target - observed_baseline
+
+    diffs: list[float] = []
+    n_dropped = 0
+    for _ in range(n_bootstrap):
+        idx = rng.integers(0, n, size=n)
+        try:
+            t = metric_fn(labels_orig[idx], labels_target[idx])
+            b = metric_fn(labels_orig[idx], labels_baseline[idx])
+        except (DegenerateMetricError, ZeroDivisionError):
+            n_dropped += 1
+            continue
+        diffs.append(t - b)
+
+    n_used = len(diffs)
+    if n_used == 0:
+        return TestResult(
+            metric=metric_name,
+            test="bootstrap",
+            statistic=observed_delta,
+            p_value=1.0,
+            p_value_kind="two-sided",
+            ci_low=observed_delta,
+            ci_high=observed_delta,
+            ci_kind="percentile",
+            n=n,
+            extra={
+                "degenerate": True,
+                "reason": "all_resamples_dropped",
+                "n_resamples": n_bootstrap,
+                "n_used_resamples": 0,
+                "n_dropped_resamples": n_bootstrap,
+                "bootstrap_unstable": False,
+                "observed_delta": observed_delta,
+            },
+        )
+
+    diffs_arr = np.asarray(diffs, dtype=np.float64)
+    p_le = float(np.mean(diffs_arr <= 0))
+    p_ge = float(np.mean(diffs_arr >= 0))
+    p_value = min(1.0, 2.0 * min(p_le, p_ge))
+
+    if np.allclose(diffs_arr, diffs_arr[0]):
+        return TestResult(
+            metric=metric_name,
+            test="bootstrap",
+            statistic=observed_delta,
+            p_value=1.0,
+            p_value_kind="two-sided",
+            ci_low=observed_delta,
+            ci_high=observed_delta,
+            ci_kind="percentile",
+            n=n,
+            extra={
+                "degenerate": True,
+                "reason": "zero_variance",
+                "n_resamples": n_bootstrap,
+                "n_used_resamples": n_used,
+                "n_dropped_resamples": n_dropped,
+                "bootstrap_unstable": False,
+                "observed_delta": observed_delta,
+            },
+        )
+
+    ci_low, ci_high = np.percentile(diffs_arr, [2.5, 97.5])
+    bootstrap_unstable = n_dropped > 0.05 * n_bootstrap
+    return TestResult(
+        metric=metric_name,
+        test="bootstrap",
+        statistic=observed_delta,
+        p_value=p_value,
+        p_value_kind="two-sided",
+        ci_low=float(ci_low),
+        ci_high=float(ci_high),
+        ci_kind="percentile",
+        n=n,
+        extra={
+            "degenerate": False,
+            "n_resamples": n_bootstrap,
+            "n_used_resamples": n_used,
+            "n_dropped_resamples": n_dropped,
+            "bootstrap_unstable": bootstrap_unstable,
+            "observed_delta": observed_delta,
         },
     )
