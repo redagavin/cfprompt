@@ -4,7 +4,8 @@ import json
 import numpy as np
 import pytest
 
-from cfprompt.cache import derive_seed
+from cfprompt.cache import derive_seed, safe_format
+from cfprompt.exceptions import ConfigError
 
 
 @pytest.mark.unit
@@ -51,10 +52,6 @@ class TestDeriveSeed:
         expected_raw = int.from_bytes(hashlib.sha256(expected_blob).digest()[:8], "big")
         expected = expected_raw & ((1 << 63) - 1)
         assert derive_seed(42, "abc", 7) == expected
-
-
-from cfprompt.cache import safe_format
-from cfprompt.exceptions import ConfigError
 
 
 @pytest.mark.unit

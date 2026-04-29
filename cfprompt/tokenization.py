@@ -6,7 +6,7 @@ Protocol-conforming tokenizer's `encode` output.
 """
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 
 def token_edit_distance(a: Sequence[int], b: Sequence[int]) -> int:

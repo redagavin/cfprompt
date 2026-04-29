@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import string
 from typing import Any
 
+from .exceptions import ConfigError
 
 _AcceptedSeedPart = (int, str, tuple)
 
@@ -59,11 +61,6 @@ def derive_seed(study_seed: int, *parts: Any) -> int:
     return raw & ((1 << 63) - 1)
 
 
-import string
-
-from .exceptions import ConfigError
-
-
 def safe_format(template: str, mapping: dict) -> str:
     """Substitute `{name}` placeholders in `template` from `mapping`.
 
@@ -86,7 +83,7 @@ def safe_format(template: str, mapping: dict) -> str:
         raise ConfigError(f"prompt_template is not valid format string: {e}") from e
 
     keys_used: list[str] = []
-    for literal_text, field_name, format_spec, conversion in parsed:
+    for _literal_text, field_name, format_spec, conversion in parsed:
         if field_name is None:
             # pure literal segment (or after the last placeholder)
             continue
