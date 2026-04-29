@@ -11,9 +11,12 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-from .cache import DiskCache
+from . import __paraphrase_algorithm_version__, __version__
+from .cache import DiskCache, derive_seed, paraphrase_cache_key
 from .exceptions import ClassificationModeError, ConfigError, StageNotRunError
 from .models.base import Model, Tokenizer
+from .paraphrase import generate_adjusted_paraphrase
+from .tokenization import token_edit_distance_pct
 
 _logger = logging.getLogger("cfprompt")
 
@@ -291,3 +294,106 @@ class Study:
                     f"tokens ({ids}). Use HFModel or pass extract_label=... "
                     f"to switch to free-form mode."
                 )
+
+
+def _generate_baselines(self) -> None:
+    if self._baselines_df is not None:
+        return
+    self._check_cache_id_match("generate_baselines")
+    self._drop_counts = _init_drop_counts()
+    self._baseline_refused_count = 0
+    self._baseline_refused_sample_ids = []
+    rows = []
+    n_input = len(self.data)
+    self._n_input = n_input
+
+    for sample_id, row in self.data.iterrows():
+        original = row[self.perturb_column]
+        try:
+            target = self.target_perturbation(original)
+        except Exception as e:
+            _logger.warning("target_perturbation raised on row %r: %s", sample_id, e)
+            self._drop_counts["tokenization_failed"] += 1
+            continue
+
+        if target == original:
+            self._drop_counts["zero_edit"] += 1
+            continue
+
+        try:
+            orig_ids = self.target_model.tokenizer.encode(original)
+            target_ids = self.target_model.tokenizer.encode(target)
+        except Exception as e:
+            _logger.warning("tokenizer raised on row %r: %s", sample_id, e)
+            self._drop_counts["tokenization_failed"] += 1
+            continue
+
+        if len(orig_ids) == 0:
+            self._drop_counts["tokenization_failed"] += 1
+            continue
+
+        target_edit_pct = token_edit_distance_pct(orig_ids, target_ids)
+
+        per_sample_seed = derive_seed(self.seed, str(sample_id))
+
+        result = DiskCache._MISS
+        if self._paraphrase_cache is not None:
+            key = paraphrase_cache_key(
+                stage_version=__paraphrase_algorithm_version__,
+                cfprompt_version=__version__,
+                original=original,
+                target_perturbed=target,
+                target_edit_pct=target_edit_pct,
+                paraphrase_model_cache_id=self.paraphrase_model.cache_id,
+                tokenizer_cache_id=self.target_model.tokenizer.cache_id,
+                tolerance=self.tolerance,
+                max_retries=self.max_retries,
+                seed=per_sample_seed,
+            )
+            result = self._paraphrase_cache.get(key, default=DiskCache._MISS)
+
+        if result is DiskCache._MISS:
+            result = generate_adjusted_paraphrase(
+                text=original,
+                target_edit_pct=target_edit_pct,
+                paraphrase_model=self.paraphrase_model,
+                tokenizer=self.target_model.tokenizer,
+                tolerance=self.tolerance,
+                max_retries=self.max_retries,
+            )
+            if self._paraphrase_cache is not None:
+                self._paraphrase_cache.set(key, result)
+        baseline_ids = self.target_model.tokenizer.encode(result.paraphrase)
+        baseline_edit_pct = (
+            token_edit_distance_pct(orig_ids, baseline_ids) if len(orig_ids) else 0.0
+        )
+
+        if result.refused:
+            self._baseline_refused_count += 1
+            self._baseline_refused_sample_ids.append(sample_id)
+            _logger.warning(
+                "sample_id=%r: all %d paraphrase attempts refused; using "
+                "original as baseline (baseline edit %% = 0). This biases "
+                "JSD/KL/aggregate metrics positively for this sample; "
+                "regression difference biased same direction; level "
+                "regression mild precision loss.",
+                sample_id,
+                self.max_retries + 1,
+            )
+
+        record = dict(row)
+        record["sample_id"] = sample_id
+        record["original"] = original
+        record["target_perturbed"] = target
+        record["baseline_perturbed"] = result.paraphrase
+        record["target_edit_pct"] = target_edit_pct
+        record["baseline_edit_pct"] = baseline_edit_pct
+        record["baseline_refused"] = result.refused
+        record["retries_used"] = result.retries_used
+        rows.append(record)
+
+    self._baselines_df = pd.DataFrame(rows)
+
+
+Study.generate_baselines = _generate_baselines
+Study.baselines_df = property(lambda self: self._baselines_df)
