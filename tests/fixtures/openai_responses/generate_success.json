@@ -1,0 +1,13 @@
+{
+  "id": "chatcmpl-3",
+  "object": "chat.completion",
+  "model": "gpt-4.1-2024-08-06",
+  "system_fingerprint": "fp_test_abc123",
+  "choices": [
+    {
+      "index": 0,
+      "message": {"role": "assistant", "content": "Hello, how can I help?"},
+      "finish_reason": "stop"
+    }
+  ]
+}

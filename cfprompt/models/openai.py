@@ -154,8 +154,71 @@ class OpenAIModel(Model):
         # OpenAI SDK clients are httpx-backed; allow GC to handle them.
         pass
 
+    def _request_one_generate(self, prompt: str, seed: int | None) -> dict:
+        """Issue one free-form generation request. Same retry policy as
+        _request_one but uses max_completion_tokens for output length and
+        does NOT request logprobs."""
+        client = OpenAI(api_key=self._api_key, timeout=self.timeout)
+        delay = 1.0
+        for attempt in range(self.max_retries + 1):
+            try:
+                kwargs: dict[str, Any] = {
+                    "model": self.name,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_completion_tokens": self.max_completion_tokens,
+                    "temperature": self.temperature,
+                    "top_p": self.top_p,
+                }
+                if seed is not None:
+                    kwargs["seed"] = seed
+                resp = client.chat.completions.create(**kwargs)
+                return resp.model_dump()
+            except (RateLimitError, APIConnectionError, APITimeoutError) as e:
+                if attempt == self.max_retries:
+                    _logger.error(
+                        "OpenAIModel: exhausted %d retries on %s",
+                        self.max_retries, type(e).__name__,
+                    )
+                    raise
+                wait = min(delay, self.backoff_max_seconds)
+                _logger.warning(
+                    "OpenAIModel: %s (attempt %d/%d); retrying in %.1fs",
+                    type(e).__name__, attempt + 1, self.max_retries + 1, wait,
+                )
+                time.sleep(wait)
+                delay *= 2
+            except APIStatusError as e:
+                if 500 <= e.status_code < 600 and attempt < self.max_retries:
+                    wait = min(delay, self.backoff_max_seconds)
+                    _logger.warning(
+                        "OpenAIModel: %d (attempt %d/%d); retrying in %.1fs",
+                        e.status_code, attempt + 1, self.max_retries + 1, wait,
+                    )
+                    time.sleep(wait)
+                    delay *= 2
+                    continue
+                err_code = getattr(getattr(e, "body", None) or {}, "get", lambda *_: None)("code")
+                msg = str(getattr(e, "message", "")) or str(e)
+                _logger.error(
+                    "OpenAIModel: %d %s %s",
+                    e.status_code,
+                    err_code or "",
+                    msg[:200],
+                )
+                raise
+        raise RuntimeError("OpenAIModel._request_one_generate fell off retry loop")
+
     def generate(self, prompts, per_prompt_seeds=None):
-        raise NotImplementedError("Implemented in Task 4.4")
+        out: list[str] = []
+        for i, prompt in enumerate(prompts):
+            seed = per_prompt_seeds[i] if per_prompt_seeds is not None else None
+            resp = self._request_one_generate(prompt, seed)
+            try:
+                text = resp["choices"][0]["message"]["content"]
+            except (KeyError, IndexError, TypeError):
+                text = ""
+            out.append(text or "")
+        return out
 
     def _request_one(
         self,
