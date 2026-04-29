@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import pickle
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -753,3 +754,156 @@ Study._run_regression = _run_regression
 Study._build_metadata = _build_metadata
 Study.test = _study_test
 Study.run_all = _study_run_all
+
+
+def _study_save(self, path) -> None:
+    payload = {
+        "config": {
+            "perturb_column": self.perturb_column,
+            "prompt_template": self.prompt_template,
+            "classes": self.classes,
+            "mode": self.mode,
+            "directional": self.directional,
+            "direction_column": self.direction_column,
+            "outcome_class_column": self.outcome_class_column,
+            "alternative": self.alternative,
+            "tolerance": self.tolerance,
+            "max_retries": self.max_retries,
+            "seed": self.seed,
+            "n_bootstrap": self.n_bootstrap,
+        },
+        "data": self.data,
+        "baselines_df": self._baselines_df,
+        "inference_df": self._inference_df,
+        "drop_counts": self._drop_counts,
+        "baseline_refused_count": self._baseline_refused_count,
+        "baseline_refused_sample_ids": list(self._baseline_refused_sample_ids),
+        "n_input": self._n_input,
+        "saved_target_cache_id": self.target_model.cache_id,
+        "saved_paraphrase_cache_id": self.paraphrase_model.cache_id,
+    }
+    with open(path, "wb") as f:
+        pickle.dump(payload, f)
+
+
+@classmethod
+def _study_load(
+    cls,
+    path,
+    target_model=None,
+    paraphrase_model=None,
+    target_perturbation=None,
+    extract_label=None,
+    allow_cache_id_mismatch: bool = False,
+):
+    with open(path, "rb") as f:
+        payload = pickle.load(f)
+
+    config = payload["config"]
+    saved_t_cid = payload["saved_target_cache_id"]
+    saved_p_cid = payload["saved_paraphrase_cache_id"]
+
+    bound_target = target_model if target_model is not None else _StubModel(saved_t_cid)
+    bound_para = paraphrase_model if paraphrase_model is not None else _StubModel(saved_p_cid)
+
+    s = cls.__new__(cls)
+    s.data = payload["data"]
+    s.perturb_column = config["perturb_column"]
+    s.target_perturbation = target_perturbation
+    s.prompt_template = config["prompt_template"]
+    s.target_model = bound_target
+    s.paraphrase_model = bound_para
+    s.classes = config["classes"]
+    s.extract_label = extract_label
+    s.direction_column = config["direction_column"]
+    s.outcome_class_column = config["outcome_class_column"]
+    s.alternative = config["alternative"]
+    s.tolerance = config["tolerance"]
+    s.max_retries = config["max_retries"]
+    s.cache_dir = None
+    s._paraphrase_cache = None
+    s._inference_cache = None
+    s.seed = config["seed"]
+    s.n_bootstrap = config["n_bootstrap"]
+    s.mode = config["mode"]
+    s.directional = config["directional"]
+    s._baselines_df = payload["baselines_df"]
+    s._inference_df = payload["inference_df"]
+    s._drop_counts = dict(payload.get("drop_counts") or _init_drop_counts())
+    s._baseline_refused_count = int(payload.get("baseline_refused_count", 0))
+    s._baseline_refused_sample_ids = list(payload.get("baseline_refused_sample_ids", []))
+    s._n_input = int(payload.get("n_input", 0))
+    s._loaded_target_cache_id = saved_t_cid
+    s._loaded_paraphrase_cache_id = saved_p_cid
+    s._loaded_from_path = str(path)
+    s._allow_cache_id_mismatch = allow_cache_id_mismatch
+
+    _logger.info(
+        "loaded study from %s; saved target_model.cache_id=%r; saved paraphrase_model.cache_id=%r",
+        path,
+        saved_t_cid,
+        saved_p_cid,
+    )
+    if target_model is not None and target_model.cache_id != saved_t_cid:
+        _logger.info(
+            "re-supplied target_model.cache_id=%r differs from saved %r; stage invocation will %s.",
+            target_model.cache_id,
+            saved_t_cid,
+            "WARN only" if allow_cache_id_mismatch else "raise ConfigError",
+        )
+    if paraphrase_model is not None and paraphrase_model.cache_id != saved_p_cid:
+        _logger.info(
+            "re-supplied paraphrase_model.cache_id=%r differs from saved %r; "
+            "stage invocation will %s.",
+            paraphrase_model.cache_id,
+            saved_p_cid,
+            "WARN only" if allow_cache_id_mismatch else "raise ConfigError",
+        )
+    return s
+
+
+def _study_reextract(self, extract_label) -> None:
+    if self.mode != "free_form":
+        raise ConfigError("reextract() is only valid in free-form mode.")
+    if self._inference_df is None:
+        raise StageNotRunError("reextract requires run_inference() output; load a study first.")
+    self.extract_label = extract_label
+    rows = []
+    n_none = 0
+    n_raised = 0
+    for _, row in self._inference_df.iterrows():
+        labels = []
+        ok = True
+        for cond in ("orig", "target", "base"):
+            gen = row[f"generation_{cond}"]
+            try:
+                lab = extract_label(gen)
+            except Exception as e:
+                _logger.warning(
+                    "reextract: extract_label raised %s on sample_id=%r/%s: %s",
+                    type(e).__name__,
+                    row.get("sample_id", "?"),
+                    cond,
+                    str(e)[:200],
+                )
+                n_raised += 1
+                ok = False
+                break
+            if lab is None:
+                n_none += 1
+                ok = False
+                break
+            labels.append(lab)
+        if not ok:
+            continue
+        new_row = dict(row)
+        new_row["label_orig"], new_row["label_target"], new_row["label_base"] = labels
+        rows.append(new_row)
+    self._drop_counts["extraction_returned_none"] = n_none
+    self._drop_counts["extraction_raised"] = n_raised
+    self._inference_df = pd.DataFrame(rows)
+
+
+Study.save = _study_save
+Study.load = _study_load
+Study.reextract = _study_reextract
