@@ -1,0 +1,119 @@
+import numpy as np
+import pandas as pd
+import pytest
+
+from cfprompt.exceptions import ConfigError
+from cfprompt.report import Report
+from cfprompt.study import Study
+
+
+class _StubTokenizer:
+    def encode(self, t):
+        return [hash(w) & 0xFFFF for w in t.split()]
+
+    @property
+    def cache_id(self):
+        return "tok:1"
+
+
+class _StubModel:
+    def __init__(self, cache_id="m:1", probs_per_call=None, gens_per_call=None):
+        self.cache_id = cache_id
+        self.tokenizer = _StubTokenizer()
+        self._probs = list(probs_per_call) if probs_per_call else None
+        self._gens = list(gens_per_call) if gens_per_call else None
+
+    def score_classes(self, prompts, classes, per_prompt_seeds=None):
+        if self._probs:
+            return self._probs.pop(0)
+        return np.full((len(prompts), len(classes)), 1.0 / len(classes))
+
+    def generate(self, prompts, per_prompt_seeds=None):
+        if self._gens:
+            return self._gens.pop(0)
+        return [""] * len(prompts)
+
+    def close(self):
+        pass
+
+
+@pytest.mark.integration
+class TestStudyTest:
+    def _classification_study(self):
+        df = pd.DataFrame(
+            {"q": [f"alpha beta gamma delta epsilon zeta eta theta {i}" for i in range(20)]}
+        )
+        rng = np.random.default_rng(0)
+        probs_orig = rng.dirichlet([2.0, 2.0], size=20)
+        probs_target = rng.dirichlet([1.0, 4.0], size=20)
+        probs_base = rng.dirichlet([2.1, 1.9], size=20)
+        calls = []
+        for i in range(20):
+            calls.append(np.stack([probs_orig[i], probs_target[i], probs_base[i]]))
+        para = _StubModel(
+            cache_id="para",
+            gens_per_call=[
+                [f"alpha BeTa gamma delta epsilon zeta eta theta {i}"] for i in range(20)
+            ],
+        )
+        target = _StubModel(cache_id="tgt", probs_per_call=calls)
+        s = Study(
+            data=df,
+            perturb_column="q",
+            target_perturbation=lambda x: x.replace("beta", "BETA"),
+            prompt_template="{q}",
+            target_model=target,
+            paraphrase_model=para,
+            classes=["A", "B"],
+            tolerance=50.0,
+            max_retries=0,
+            n_bootstrap=200,
+        )
+        return s
+
+    def test_classification_jsd_returns_report(self):
+        s = self._classification_study()
+        report = s.run_all(metrics=["jsd"])
+        assert isinstance(report, Report)
+        assert len(report.results) == 1
+        r = report.results[0]
+        assert r.metric == "jsd"
+        assert r.test == "paired_t"
+        assert r.p_value_kind == "two-sided"
+        assert r.statistic is not None
+        assert 0.0 <= r.p_value <= 1.0
+
+    def test_metric_mode_incompatibility_raises_at_test_time(self):
+        df = pd.DataFrame({"q": ["alpha beta gamma delta epsilon"]})
+        target = _StubModel(cache_id="t", gens_per_call=[["x", "y", "z"]])
+        para = _StubModel(cache_id="p", gens_per_call=[["alpha BETA gamma delta epsilon"]])
+        s = Study(
+            data=df,
+            perturb_column="q",
+            target_perturbation=lambda x: x.replace("beta", "BETA"),
+            prompt_template="{q}",
+            target_model=target,
+            paraphrase_model=para,
+            extract_label=lambda r: r,
+            tolerance=50.0,
+            max_retries=0,
+        )
+        s.generate_baselines()
+        s.run_inference()
+        with pytest.raises(ConfigError, match=r"jsd.*classification mode"):
+            s.test(metrics=["jsd"])
+
+    def test_run_all_chains_stages(self):
+        s = self._classification_study()
+        assert s._baselines_df is None
+        assert s._inference_df is None
+        report = s.run_all(metrics=["flip_rate"])
+        assert s._baselines_df is not None
+        assert s._inference_df is not None
+        assert len(report.results) == 1
+        assert report.results[0].metric == "flip_rate"
+
+    def test_regression_model_kwarg_ignored_when_no_regression_metric(self):
+        s = self._classification_study()
+        report = s.run_all(metrics=["jsd"], regression_model="level")
+        assert report.metadata.get("regression_model") in (None, "level")

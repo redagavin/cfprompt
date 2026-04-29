@@ -16,6 +16,7 @@ from . import (
     __paraphrase_algorithm_version__,
     __version__,
 )
+from . import __version__ as _cfprompt_version
 from .cache import (
     DiskCache,
     derive_seed,
@@ -23,9 +24,22 @@ from .cache import (
     paraphrase_cache_key,
     safe_format,
 )
-from .exceptions import ClassificationModeError, ConfigError, StageNotRunError
+from .exceptions import (
+    CfpromptError,
+    ClassificationModeError,
+    ConfigError,
+    StageNotRunError,
+)
+from .metrics.distributional import jsd as _jsd
+from .metrics.distributional import kl as _kl
+from .metrics.label import flip_rate as _flip_rate
+from .metrics.label import mutual_information as _mi
+from .metrics.label import phi_coefficient as _phi
+from .metrics.regression import fit_difference, fit_level
 from .models.base import Model, Tokenizer
 from .paraphrase import generate_adjusted_paraphrase
+from .report import Report
+from .stats import bootstrap_diff, paired_t, regression_test
 from .tokenization import token_edit_distance_pct
 
 _logger = logging.getLogger("cfprompt")
@@ -551,3 +565,191 @@ def _run_inference(self) -> None:
 
 Study.run_inference = _run_inference
 Study.inference_df = property(lambda self: self._inference_df)
+
+
+_PER_SAMPLE_METRICS = {"jsd", "kl"}
+_AGGREGATE_METRICS = {"flip_rate", "mi", "phi"}
+_REGRESSION_METRIC = "regression"
+_FREE_FORM_OK_METRICS = _AGGREGATE_METRICS
+
+
+def _check_metric_mode_compat(self, metrics: list[str]) -> None:
+    for m in metrics:
+        if m == _REGRESSION_METRIC and not self.directional:
+            raise ConfigError(
+                "Metric 'regression' requires directional study. Pass "
+                "direction_column, outcome_class_column, alternative."
+            )
+        if self.mode == "free_form" and m not in _FREE_FORM_OK_METRICS:
+            raise ConfigError(
+                f"Metric {m!r} requires classification mode (free-form has no "
+                f"class probabilities). Use {sorted(_FREE_FORM_OK_METRICS)}, "
+                f"or switch to classification mode (classes=[...]) if your "
+                f"task supports it."
+            )
+
+
+def _label_metric_fn(name: str) -> Callable:
+    return {"flip_rate": _flip_rate, "mi": _mi, "phi": _phi}[name]
+
+
+def _study_test(
+    self,
+    metrics: list[str],
+    regression_model: str = "difference",
+) -> Report:
+    if self._inference_df is None:
+        raise StageNotRunError(
+            "Cannot test before inference. Call run_inference() first or use run_all()."
+        )
+    self._check_metric_mode_compat(metrics)
+    self._clipped_log_prob_count = 0
+    self._clipped_kl_count = 0
+
+    df = self._inference_df
+    n = len(df)
+    if n < 2:
+        raise CfpromptError(
+            f"Cannot run paired tests with N={n}; check drop_counts: {self._drop_counts}."
+        )
+
+    results = []
+    labels_orig = df["label_orig"].to_numpy()
+    labels_target = df["label_target"].to_numpy()
+    labels_base = df["label_base"].to_numpy()
+
+    if self.mode == "classification":
+        probs_orig = np.vstack(df["probs_orig"].apply(np.asarray).tolist())
+        probs_target = np.vstack(df["probs_target"].apply(np.asarray).tolist())
+        probs_base = np.vstack(df["probs_base"].apply(np.asarray).tolist())
+        from .metrics.distributional import EPS
+
+        kl_clip_mask = (
+            (probs_orig.min(axis=1) < EPS)
+            | (probs_target.min(axis=1) < EPS)
+            | (probs_base.min(axis=1) < EPS)
+        )
+        self._clipped_kl_count = int(kl_clip_mask.sum())
+
+    for m in metrics:
+        if m in _PER_SAMPLE_METRICS:
+            fn = _jsd if m == "jsd" else _kl
+            target_arr = fn(probs_orig, probs_target)
+            base_arr = fn(probs_orig, probs_base)
+            results.append(paired_t(target_arr, base_arr, metric_name=m))
+        elif m in _AGGREGATE_METRICS:
+            metric_fn = _label_metric_fn(m)
+            results.append(
+                bootstrap_diff(
+                    labels_orig=labels_orig,
+                    labels_target=labels_target,
+                    labels_baseline=labels_base,
+                    metric_fn=metric_fn,
+                    metric_name=m,
+                    n_bootstrap=self.n_bootstrap,
+                    seed=self.seed,
+                )
+            )
+        elif m == _REGRESSION_METRIC:
+            results.append(
+                self._run_regression(regression_model, probs_orig, probs_target, probs_base)
+            )
+        else:
+            raise ConfigError(f"Unknown metric: {m!r}")
+
+    metadata = self._build_metadata(metrics, regression_model)
+    return Report(results=results, metadata=metadata)
+
+
+def _run_regression(self, which: str, probs_orig, probs_target, probs_base):
+    df = self._inference_df
+    direction = df[self.direction_column].astype(float).to_numpy()
+    outcome_idx = np.array([self.classes.index(c) for c in df[self.outcome_class_column]])
+    eps = 1e-12
+    n = len(df)
+    raw_orig = probs_orig[np.arange(n), outcome_idx]
+    raw_target = probs_target[np.arange(n), outcome_idx]
+    raw_base = probs_base[np.arange(n), outcome_idx]
+    clipped_mask = (raw_orig < eps) | (raw_target < eps) | (raw_base < eps)
+    self._clipped_log_prob_count = int(clipped_mask.sum())
+    logp_orig = np.log(np.clip(raw_orig, eps, 1.0))
+    logp_target = np.log(np.clip(raw_target, eps, 1.0))
+    logp_base = np.log(np.clip(raw_base, eps, 1.0))
+
+    if which == "difference":
+        delta = logp_target - logp_base
+        fit = fit_difference(direction, delta)
+    elif which == "level":
+        sample_id = np.concatenate([np.arange(n), np.arange(n)])
+        y = np.concatenate([logp_base, logp_target])
+        z_i = np.concatenate([logp_orig, logp_orig])
+        direction_stack = np.concatenate([np.zeros(n), direction])
+        fit = fit_level(direction_stack, y, z_i, sample_id)
+    else:
+        raise ConfigError(f"regression_model must be 'difference' or 'level'; got {which!r}")
+    return regression_test(fit, alternative=self.alternative, n_distinct_samples=n)
+
+
+def _build_metadata(self, metrics: list[str], regression_model: str) -> dict:
+    bdf = self._baselines_df
+    if bdf is not None and len(bdf) > 0 and "baseline_edit_pct" in bdf.columns:
+        edits = bdf["baseline_edit_pct"].astype(float).to_numpy()
+        edit_mean = float(edits.mean())
+        edit_std = float(edits.std(ddof=1)) if len(edits) > 1 else 0.0
+        within = float(
+            np.mean(
+                np.abs(edits - bdf["target_edit_pct"].astype(float).to_numpy()) <= self.tolerance
+            )
+        )
+        retries_hit = int((bdf["retries_used"].astype(int) >= self.max_retries).sum())
+    else:
+        edit_mean = 0.0
+        edit_std = 0.0
+        within = 0.0
+        retries_hit = 0
+
+    return {
+        "cfprompt_version": _cfprompt_version,
+        "n_input": self._n_input,
+        "n_after_baselines": len(bdf) if bdf is not None else 0,
+        "n_after_inference": len(self._inference_df),
+        "n_used_for_test": len(self._inference_df),
+        "drop_counts": dict(self._drop_counts),
+        "baseline_refused_count": self._baseline_refused_count,
+        "baseline_refused_rate": (
+            self._baseline_refused_count / self._n_input if self._n_input else 0.0
+        ),
+        "baseline_refused_sample_ids": list(self._baseline_refused_sample_ids),
+        "paraphrase_actual_edit_pct_mean": edit_mean,
+        "paraphrase_actual_edit_pct_std": edit_std,
+        "paraphrase_max_retries_hit": retries_hit,
+        "tolerance_target": self.tolerance,
+        "tolerance_achieved_rate": within,
+        "clipped_log_prob_count": getattr(self, "_clipped_log_prob_count", 0),
+        "clipped_kl_count": getattr(self, "_clipped_kl_count", 0),
+        "target_model": self.target_model.cache_id,
+        "paraphrase_model": self.paraphrase_model.cache_id,
+        "seed": self.seed,
+        "n_bootstrap": self.n_bootstrap,
+        "regression_model": (regression_model if _REGRESSION_METRIC in metrics else None),
+        "loaded_target_cache_id": self._loaded_target_cache_id,
+        "loaded_paraphrase_cache_id": self._loaded_paraphrase_cache_id,
+        "loaded_from_path": self._loaded_from_path,
+    }
+
+
+def _study_run_all(
+    self,
+    metrics: list[str],
+    regression_model: str = "difference",
+) -> Report:
+    self.generate_baselines()
+    self.run_inference()
+    return self.test(metrics=metrics, regression_model=regression_model)
+
+
+Study._check_metric_mode_compat = _check_metric_mode_compat
+Study._run_regression = _run_regression
+Study._build_metadata = _build_metadata
+Study.test = _study_test
+Study.run_all = _study_run_all
