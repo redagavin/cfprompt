@@ -10,9 +10,12 @@ import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import numpy as np
 import torch
 from huggingface_hub import HfApi, snapshot_download
 from huggingface_hub.errors import HfHubHTTPError, OfflineModeIsEnabled
+
+from cfprompt.exceptions import ClassificationModeError
 
 from .base import Model, Tokenizer
 
@@ -190,8 +193,89 @@ class HFModel(Model):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
+    def _resolve_sampling_device(self) -> torch.device:
+        """Walk a fallback chain to find where sampling happens.
+
+        Order: lm_head.weight.device -> output_projection.weight.device ->
+        first model parameter's device -> cpu fallback (with DEBUG log).
+        Robust under device_map sharding, PEFT wrappers, quantized models,
+        and the (rare) zero-parameter case.
+        """
+        m = self._model
+        for attr in ("lm_head", "output_projection"):
+            mod = getattr(m, attr, None)
+            if mod is not None:
+                weight = getattr(mod, "weight", None)
+                if weight is not None:
+                    return weight.device
+        first = next(m.parameters(), None)
+        if first is not None:
+            return first.device
+        _logger.debug(
+            "HFModel: model has no parameters; falling back to cpu for "
+            "sampling-device resolution"
+        )
+        return torch.device("cpu")
+
     def generate(self, prompts, per_prompt_seeds=None):
         raise NotImplementedError("Implemented in Task 3.4")
 
     def score_classes(self, prompts, classes, per_prompt_seeds=None):
-        raise NotImplementedError("Implemented in Task 3.3")
+        # Step A: resolve first-token id for each class (with prefix).
+        underlying = self._tokenizer_wrapper._tokenizer
+        first_token_ids: list[int] = []
+        for cls in classes:
+            ids = underlying.encode(self.class_prefix + cls, add_special_tokens=False)
+            if not ids:
+                raise ClassificationModeError(
+                    f"Class {cls!r} tokenizes to an empty sequence under "
+                    f"{self._tokenizer_wrapper.cache_id} (with class_prefix="
+                    f"{self.class_prefix!r}); cannot score."
+                )
+            first_token_ids.append(ids[0])
+
+        # Step B: collision check.
+        seen: dict[int, str] = {}
+        for cls, tid in zip(classes, first_token_ids, strict=False):
+            if tid in seen:
+                raise ClassificationModeError(
+                    f"Classes {seen[tid]!r} and {cls!r} both tokenize to "
+                    f"first token id {tid} under "
+                    f"{self._tokenizer_wrapper.cache_id} with class_prefix="
+                    f"{self.class_prefix!r}; first-token scoring would "
+                    f"conflate them. Choose distinct class names or use "
+                    f"free-form mode with a custom extract_label."
+                )
+            seen[tid] = cls
+
+        # Step C: forward pass, batched.
+        # HFTokenizer is configured with padding_side="left", so the final
+        # real token is always at index -1. This avoids per-row indexing
+        # via attention_mask.sum(dim=1)-1 which is brittle across HF versions.
+        n = len(prompts)
+        k = len(classes)
+        out = np.empty((n, k), dtype=np.float64)
+        bs = self.batch_size
+        device = self._resolve_sampling_device()
+        for start in range(0, n, bs):
+            chunk = prompts[start : start + bs]
+            enc = underlying(
+                chunk,
+                return_tensors="pt",
+                padding=True,
+                truncation=False,
+                add_special_tokens=False,
+            )
+            input_ids = enc["input_ids"].to(device)
+            attention_mask = enc["attention_mask"].to(device)
+            with torch.no_grad():
+                logits = self._model(
+                    input_ids=input_ids, attention_mask=attention_mask
+                ).logits
+            # Last position is index -1 because padding is left-side.
+            last_logits = logits[:, -1, :]                     # (batch, vocab)
+            class_logits = last_logits[:, first_token_ids]     # (batch, k)
+            class_probs = torch.softmax(class_logits.float(), dim=-1).cpu().numpy()
+            out[start : start + class_probs.shape[0]] = class_probs
+
+        return out
