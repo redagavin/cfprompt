@@ -1,5 +1,7 @@
 """cfprompt — counterfactual prompting with adjusted paraphrase baselines."""
 
+import logging
+
 __version__ = "0.0.1"
 
 # Bumped whenever paraphrase prompt template, refusal phrases, edit-distance
@@ -11,8 +13,6 @@ __paraphrase_algorithm_version__ = "1"
 # normalization, or any code path that changes cached probability/generation
 # values changes.
 __inference_algorithm_version__ = "1"
-
-import logging
 
 _logger = logging.getLogger("cfprompt")
 
