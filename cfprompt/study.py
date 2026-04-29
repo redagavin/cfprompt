@@ -11,8 +11,18 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-from . import __paraphrase_algorithm_version__, __version__
-from .cache import DiskCache, derive_seed, paraphrase_cache_key
+from . import (
+    __inference_algorithm_version__,
+    __paraphrase_algorithm_version__,
+    __version__,
+)
+from .cache import (
+    DiskCache,
+    derive_seed,
+    inference_cache_key,
+    paraphrase_cache_key,
+    safe_format,
+)
 from .exceptions import ClassificationModeError, ConfigError, StageNotRunError
 from .models.base import Model, Tokenizer
 from .paraphrase import generate_adjusted_paraphrase
@@ -397,3 +407,147 @@ def _generate_baselines(self) -> None:
 
 Study.generate_baselines = _generate_baselines
 Study.baselines_df = property(lambda self: self._baselines_df)
+
+
+CONDITION_NAMES = ("original", "target", "baseline")
+CONDITION_KEYS = ("original", "target_perturbed", "baseline_perturbed")
+
+
+def _run_inference(self) -> None:
+    if self._inference_df is not None:
+        return
+    self._check_cache_id_match("run_inference")
+    if self._baselines_df is None:
+        self.generate_baselines()
+    if len(self._baselines_df) == 0:
+        self._inference_df = pd.DataFrame()
+        return
+
+    rows_out = []
+    n_extraction_raised = 0
+    n_extraction_none = 0
+    n_openai_missing = 0
+
+    def _cache_key_for(prompt: str, sample_id, condition: str) -> str:
+        return inference_cache_key(
+            stage_version=__inference_algorithm_version__,
+            prompt=prompt,
+            target_model_cache_id=self.target_model.cache_id,
+            mode=self.mode,
+            classes=self.classes,
+            seed=derive_seed(self.seed, str(sample_id), condition),
+        )
+
+    for _, row in self._baselines_df.iterrows():
+        sample_id = row["sample_id"]
+        prompts: list[str] = []
+        for text_key in CONDITION_KEYS:
+            mapping = dict(row)
+            mapping[self.perturb_column] = row[text_key]
+            prompts.append(safe_format(self.prompt_template, mapping))
+
+        per_prompt_seeds = [
+            derive_seed(self.seed, str(sample_id), cond) for cond in CONDITION_NAMES
+        ]
+
+        record = dict(row)
+        if self.mode == "classification":
+            cached_probs: list = [DiskCache._MISS] * 3
+            need_compute_idx: list[int] = []
+            if self._inference_cache is not None:
+                keys: list[str] = [
+                    _cache_key_for(prompts[i], sample_id, CONDITION_NAMES[i]) for i in range(3)
+                ]
+                for i in range(3):
+                    cached_probs[i] = self._inference_cache.get(keys[i], default=DiskCache._MISS)
+                    if cached_probs[i] is DiskCache._MISS:
+                        need_compute_idx.append(i)
+            else:
+                keys = []
+                need_compute_idx = [0, 1, 2]
+
+            if need_compute_idx:
+                fresh = self.target_model.score_classes(
+                    [prompts[i] for i in need_compute_idx],
+                    self.classes,
+                    per_prompt_seeds=[per_prompt_seeds[i] for i in need_compute_idx],
+                )
+                for j, i in enumerate(need_compute_idx):
+                    val = None if np.isnan(fresh[j]).any() else fresh[j]
+                    cached_probs[i] = val
+                    if self._inference_cache is not None:
+                        self._inference_cache.set(keys[i], val)
+
+            assert all(p is not DiskCache._MISS for p in cached_probs)
+            if any(p is None for p in cached_probs):
+                n_openai_missing += 1
+                continue
+
+            record["probs_orig"] = list(cached_probs[0])
+            record["probs_target"] = list(cached_probs[1])
+            record["probs_base"] = list(cached_probs[2])
+            record["label_orig"] = self.classes[int(np.argmax(cached_probs[0]))]
+            record["label_target"] = self.classes[int(np.argmax(cached_probs[1]))]
+            record["label_base"] = self.classes[int(np.argmax(cached_probs[2]))]
+        else:
+            cached_gens: list = [DiskCache._MISS] * 3
+            need_compute_idx = []
+            if self._inference_cache is not None:
+                keys = [_cache_key_for(prompts[i], sample_id, CONDITION_NAMES[i]) for i in range(3)]
+                for i in range(3):
+                    cached_gens[i] = self._inference_cache.get(keys[i], default=DiskCache._MISS)
+                    if cached_gens[i] is DiskCache._MISS:
+                        need_compute_idx.append(i)
+            else:
+                keys = []
+                need_compute_idx = [0, 1, 2]
+
+            if need_compute_idx:
+                fresh = self.target_model.generate(
+                    [prompts[i] for i in need_compute_idx],
+                    per_prompt_seeds=[per_prompt_seeds[i] for i in need_compute_idx],
+                )
+                for j, i in enumerate(need_compute_idx):
+                    cached_gens[i] = fresh[j]
+                    if self._inference_cache is not None:
+                        self._inference_cache.set(keys[i], fresh[j])
+            assert all(g is not DiskCache._MISS for g in cached_gens)
+
+            labels: list[str] = []
+            ok = True
+            for g in cached_gens:
+                try:
+                    label = self.extract_label(g)
+                except Exception as e:
+                    _logger.warning(
+                        "sample_id=%r extract_label raised %s: %s",
+                        sample_id,
+                        type(e).__name__,
+                        str(e)[:200],
+                    )
+                    n_extraction_raised += 1
+                    ok = False
+                    break
+                if label is None:
+                    n_extraction_none += 1
+                    ok = False
+                    break
+                labels.append(label)
+            if not ok:
+                continue
+            record["generation_orig"] = cached_gens[0]
+            record["generation_target"] = cached_gens[1]
+            record["generation_base"] = cached_gens[2]
+            record["label_orig"] = labels[0]
+            record["label_target"] = labels[1]
+            record["label_base"] = labels[2]
+        rows_out.append(record)
+
+    self._drop_counts["openai_missing_class"] += n_openai_missing
+    self._drop_counts["extraction_returned_none"] += n_extraction_none
+    self._drop_counts["extraction_raised"] += n_extraction_raised
+    self._inference_df = pd.DataFrame(rows_out)
+
+
+Study.run_inference = _run_inference
+Study.inference_df = property(lambda self: self._inference_df)
