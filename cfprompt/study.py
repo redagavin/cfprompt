@@ -192,6 +192,7 @@ class Study:
 
         if self.mode == "classification":
             self._openai_preflight(target_model, classes)
+            self._hf_preflight(target_model, classes)
 
         self.data = data.copy()
         self.perturb_column = perturb_column
@@ -295,6 +296,14 @@ class Study:
                 f"values: {offenders} not in classes={classes}; first 10 "
                 f"offending row indices: {offending_rows}."
             )
+
+    @staticmethod
+    def _hf_preflight(target_model: Model, classes: list[str]) -> None:
+        from .models.hf import HFModel
+
+        if not isinstance(target_model, HFModel):
+            return
+        target_model.validate_classes(classes)
 
     @staticmethod
     def _openai_preflight(target_model: Model, classes: list[str]) -> None:

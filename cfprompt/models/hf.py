@@ -312,8 +312,11 @@ class HFModel(Model):
                 results.extend(_decode_one_batch(chunk))
         return results
 
-    def score_classes(self, prompts, classes, per_prompt_seeds=None):
-        # Step A: resolve first-token id for each class (with prefix).
+    def validate_classes(self, classes: list[str]) -> list[int]:
+        """Resolve and validate first-token ids for `classes` under the
+        configured class_prefix. Raises ClassificationModeError on empty
+        tokenization or first-token collisions. Returns the resolved
+        first-token ids in input order."""
         underlying = self._tokenizer_wrapper._tokenizer
         first_token_ids: list[int] = []
         for cls in classes:
@@ -326,21 +329,32 @@ class HFModel(Model):
                 )
             first_token_ids.append(ids[0])
 
-        # Step B: collision check.
         seen: dict[int, str] = {}
         for cls, tid in zip(classes, first_token_ids, strict=False):
             if tid in seen:
+                hint = (
+                    " Try class_prefix='' (SentencePiece tokenizers like "
+                    "Llama 1/2 collapse a leading space to the single '▁' "
+                    "token, which causes this collision)."
+                    if self.class_prefix == " "
+                    else ""
+                )
                 raise ClassificationModeError(
                     f"Classes {seen[tid]!r} and {cls!r} both tokenize to "
                     f"first token id {tid} under "
                     f"{self._tokenizer_wrapper.cache_id} with class_prefix="
                     f"{self.class_prefix!r}; first-token scoring would "
-                    f"conflate them. Choose distinct class names or use "
-                    f"free-form mode with a custom extract_label."
+                    f"conflate them.{hint} Otherwise choose distinct class "
+                    f"names or use free-form mode with a custom extract_label."
                 )
             seen[tid] = cls
+        return first_token_ids
 
-        # Step C: forward pass, batched.
+    def score_classes(self, prompts, classes, per_prompt_seeds=None):
+        underlying = self._tokenizer_wrapper._tokenizer
+        first_token_ids = self.validate_classes(classes)
+
+        # Forward pass, batched.
         # HFTokenizer is configured with padding_side="left", so the final
         # real token is always at index -1. This avoids per-row indexing
         # via attention_mask.sum(dim=1)-1 which is brittle across HF versions.

@@ -21,6 +21,9 @@ def main() -> None:
     target_model = HFModel(
         name_or_path="hf-internal-testing/tiny-random-LlamaForCausalLM",
         dtype=torch.float32,
+        # SentencePiece tokenizers (Llama 1/2) collapse a leading space to a
+        # single token, which collides across all classes; class_prefix=""
+        # avoids that. Newer Llama 3 (BPE) does not need this override.
         class_prefix="",
     )
     para = MagicMock()
