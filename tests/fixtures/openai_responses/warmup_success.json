@@ -1,0 +1,15 @@
+{
+  "id": "chatcmpl-warmup",
+  "object": "chat.completion",
+  "created": 1700000000,
+  "model": "gpt-4.1-2024-08-06",
+  "system_fingerprint": "fp_test_abc123",
+  "choices": [
+    {
+      "index": 0,
+      "message": {"role": "assistant", "content": "ok"},
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
+}
