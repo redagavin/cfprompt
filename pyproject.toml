@@ -72,4 +72,4 @@ markers = [
     "external: opt-in; live OpenAI API; needs OPENAI_API_KEY",
     "gpu: opt-in; needs CUDA",
 ]
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers -m 'not smoke and not external and not gpu'"
