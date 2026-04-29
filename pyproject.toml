@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cfprompt"
+version = "0.0.1"
+description = "Counterfactual prompting with adjusted paraphrase baselines"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{name = "Gavin", email = "yzh_xjy@126.com"}]
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "scipy>=1.11",
+    "statsmodels>=0.14",
+    "torch>=2.1",
+    "transformers>=4.40",
+    "huggingface_hub>=0.20",
+    "openai>=1.30",
+    "tiktoken>=0.6",
+    "typer>=0.12",
+    "pydantic>=2.5",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.1",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+    "pip-tools>=7.4",
+]
+
+[project.scripts]
+cfprompt = "cfprompt.cli.main:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cfprompt"]
+
+[tool.coverage.run]
+source = ["cfprompt"]
+omit = [
+    "cfprompt/cli/run.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+markers = [
+    "unit: pure-logic, no model or IO",
+    "integration: real tiny model on CPU or canned API responses",
+    "smoke: SmolLM2-135M plausibility checks",
+    "external: opt-in; live OpenAI API; needs OPENAI_API_KEY",
+    "gpu: opt-in; needs CUDA",
+]
+addopts = "-ra --strict-markers"
