@@ -1,0 +1,25 @@
+{
+  "id": "chatcmpl-2",
+  "object": "chat.completion",
+  "model": "gpt-4.1-2024-08-06",
+  "system_fingerprint": "fp_test_abc123",
+  "choices": [
+    {
+      "index": 0,
+      "message": {"role": "assistant", "content": "Sure"},
+      "finish_reason": "stop",
+      "logprobs": {
+        "content": [
+          {
+            "token": "Sure",
+            "logprob": -0.05,
+            "top_logprobs": [
+              {"token": "Sure", "logprob": -0.05},
+              {"token": "Yes", "logprob": -2.0}
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

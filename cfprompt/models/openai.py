@@ -5,12 +5,20 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
 import tiktoken
-from openai import OpenAI
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    OpenAI,
+    RateLimitError,
+)
 
 from .base import Model, Tokenizer
 
@@ -149,5 +157,127 @@ class OpenAIModel(Model):
     def generate(self, prompts, per_prompt_seeds=None):
         raise NotImplementedError("Implemented in Task 4.4")
 
+    def _request_one(
+        self,
+        prompt: str,
+        classes: list[str],
+        seed: int | None,
+    ) -> dict:
+        """Issue one scoring request and return the parsed response dict.
+
+        Subclasses/tests can monkeypatch this to inject canned responses.
+        Implements HTTP retry policy (429 / 5xx / timeout / network errors)
+        with exponential backoff capped at backoff_max_seconds.
+        """
+        client = OpenAI(api_key=self._api_key, timeout=self.timeout)
+        delay = 1.0
+        for attempt in range(self.max_retries + 1):
+            try:
+                kwargs: dict[str, Any] = {
+                    "model": self.name,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_completion_tokens": 1,
+                    "temperature": self.temperature,
+                    "top_p": self.top_p,
+                    "logprobs": True,
+                    "top_logprobs": min(20, len(classes)),
+                }
+                if seed is not None:
+                    kwargs["seed"] = seed
+                resp = client.chat.completions.create(**kwargs)
+                return resp.model_dump()
+            except (RateLimitError, APIConnectionError, APITimeoutError) as e:
+                if attempt == self.max_retries:
+                    _logger.error(
+                        "OpenAIModel: exhausted %d retries on %s",
+                        self.max_retries, type(e).__name__,
+                    )
+                    raise
+                wait = min(delay, self.backoff_max_seconds)
+                _logger.warning(
+                    "OpenAIModel: %s (attempt %d/%d); retrying in %.1fs",
+                    type(e).__name__, attempt + 1, self.max_retries + 1, wait,
+                )
+                time.sleep(wait)
+                delay *= 2
+            except APIStatusError as e:
+                if 500 <= e.status_code < 600 and attempt < self.max_retries:
+                    wait = min(delay, self.backoff_max_seconds)
+                    _logger.warning(
+                        "OpenAIModel: %d (attempt %d/%d); retrying in %.1fs",
+                        e.status_code, attempt + 1, self.max_retries + 1, wait,
+                    )
+                    time.sleep(wait)
+                    delay *= 2
+                    continue
+                # 4xx other than rate-limit: sanitize and re-raise.
+                # Note: never log request headers or full body — they may
+                # contain Authorization or PHI. We log only status, error
+                # code (if available), and the first 200 chars of the
+                # message body, after coercing to str.
+                err_code = getattr(getattr(e, "body", None) or {}, "get", lambda *_: None)("code")
+                msg = str(getattr(e, "message", "")) or str(e)
+                _logger.error(
+                    "OpenAIModel: %d %s %s",
+                    e.status_code,
+                    err_code or "",
+                    msg[:200],
+                )
+                raise
+        # Unreachable
+        raise RuntimeError("OpenAIModel._request_one fell off retry loop")
+
+    def _extract_class_logprobs(self, response: dict, classes: list[str]) -> np.ndarray:
+        """Extract per-class logprobs from a chat-completions response.
+
+        OpenAI's `top_logprobs` returns tokens with the leading-space prefix
+        (e.g., `" A"` not `"A"`). We look up `class_prefix + cls` so the
+        prefix matches what the API actually returns.
+
+        Returns a (k,) array of logprobs, with NaN for any class missing from
+        top_logprobs (caller treats NaN row as missing-class drop).
+        """
+        try:
+            content_logprobs = response["choices"][0]["logprobs"]["content"]
+            top = content_logprobs[0]["top_logprobs"]
+        except (KeyError, IndexError, TypeError):
+            return np.full(len(classes), np.nan)
+
+        # Build a token->logprob map. OpenAI may include duplicates if the same
+        # token appears twice; setdefault keeps the first occurrence (highest
+        # logprob, since top_logprobs is sorted descending).
+        token_to_logprob: dict[str, float] = {}
+        for entry in top:
+            token_to_logprob.setdefault(entry["token"], entry["logprob"])
+
+        out = np.empty(len(classes), dtype=np.float64)
+        for i, cls in enumerate(classes):
+            key = self.class_prefix + cls
+            # Tolerate either the prefixed form or the bare form (some models
+            # emit both depending on prompt structure).
+            if key in token_to_logprob:
+                out[i] = token_to_logprob[key]
+            elif cls in token_to_logprob:
+                out[i] = token_to_logprob[cls]
+            else:
+                out[i] = np.nan
+        return out
+
     def score_classes(self, prompts, classes, per_prompt_seeds=None):
-        raise NotImplementedError("Implemented in Task 4.3")
+        n = len(prompts)
+        k = len(classes)
+        out = np.empty((n, k), dtype=np.float64)
+        for i, prompt in enumerate(prompts):
+            seed = per_prompt_seeds[i] if per_prompt_seeds is not None else None
+            resp = self._request_one(prompt, classes, seed)
+            logprobs = self._extract_class_logprobs(resp, classes)
+            if np.isnan(logprobs).any():
+                # Dynamic missing-class: signal the entire row as NaN so the
+                # Study orchestrator drops the sample (drop_counts.openai_missing_class).
+                out[i] = np.nan
+            else:
+                # Renormalize via softmax over the class subset.
+                m = logprobs.max()
+                ex = np.exp(logprobs - m)
+                out[i] = ex / ex.sum()
+        return out
