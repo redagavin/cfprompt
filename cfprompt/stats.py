@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
+from typing import Literal
 
 import numpy as np
 from scipy import stats as scipy_stats
 
 from .exceptions import DegenerateMetricError
+from .metrics.regression import RegressionFit
 from .report import TestResult
 
 
@@ -206,4 +208,50 @@ def bootstrap_diff(
             "bootstrap_unstable": bootstrap_unstable,
             "observed_delta": observed_delta,
         },
+    )
+
+
+def regression_test(
+    fit: RegressionFit,
+    alternative: Literal["greater", "less"],
+    n_distinct_samples: int,
+) -> TestResult:
+    """OLS t-test on β; one-sided per `alternative`.
+
+    p-value derivation:
+      alternative == "less":    p = scipy.stats.t.cdf(t_stat, df_resid)
+      alternative == "greater": p = scipy.stats.t.sf(t_stat, df_resid)
+
+    `n_distinct_samples` is set as TestResult.n; for the level model this is
+    NOT fit.n_obs (which is 2 * samples for stacked rows).
+    """
+    if alternative == "less":
+        p_one = float(scipy_stats.t.cdf(fit.t_stat, fit.df_resid))
+    elif alternative == "greater":
+        p_one = float(scipy_stats.t.sf(fit.t_stat, fit.df_resid))
+    else:
+        raise ValueError(f"alternative must be 'greater' or 'less'; got {alternative!r}")
+
+    extra = {
+        "beta": fit.beta,
+        "se": fit.se,
+        "df_resid": fit.df_resid,
+        "r_squared": fit.r_squared,
+        "regression_model": "level" if "beta_0" in fit.extra else "difference",
+        "degenerate": False,
+    }
+    extra.update(fit.extra)
+
+    return TestResult(
+        metric="regression",
+        test="ols_t",
+        statistic=fit.t_stat,
+        p_value=p_one,
+        p_value_kind="one-sided",
+        p_value_two_sided=fit.p_value_two_sided,
+        ci_low=fit.ci_low_95,
+        ci_high=fit.ci_high_95,
+        ci_kind="asymptotic",
+        n=n_distinct_samples,
+        extra=extra,
     )
