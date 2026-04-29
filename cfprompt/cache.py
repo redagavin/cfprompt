@@ -139,3 +139,62 @@ def safe_format(template: str, mapping: dict) -> str:
             value = mapping[field_name]
             out_parts.append(str(value))
     return "".join(out_parts)
+
+
+def paraphrase_cache_key(
+    *,
+    stage_version: str,
+    cfprompt_version: str,
+    original: str,
+    target_perturbed: str,
+    target_edit_pct: float,
+    paraphrase_model_cache_id: str,
+    tokenizer_cache_id: str,
+    tolerance: float,
+    max_retries: int,
+    seed: int,
+) -> str:
+    """SHA-256 hex digest of canonical JSON of all paraphrase inputs."""
+    blob = json.dumps(
+        {
+            "stage_version": stage_version,
+            "cfprompt_version": cfprompt_version,
+            "original": original,
+            "target_perturbed": target_perturbed,
+            "target_edit_pct": round(float(target_edit_pct), 4),
+            "paraphrase_model_cache_id": paraphrase_model_cache_id,
+            "tokenizer_cache_id": tokenizer_cache_id,
+            "tolerance": float(tolerance),
+            "max_retries": int(max_retries),
+            "seed": int(seed),
+        },
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()
+
+
+def inference_cache_key(
+    *,
+    stage_version: str,
+    prompt: str,
+    target_model_cache_id: str,
+    mode: str,
+    classes: list[str] | None,
+    seed: int,
+) -> str:
+    """SHA-256 hex digest of canonical JSON of all inference inputs.
+
+    `classes` is preserved in user-supplied order (not sorted).
+    """
+    blob = json.dumps(
+        {
+            "stage_version": stage_version,
+            "prompt": prompt,
+            "target_model_cache_id": target_model_cache_id,
+            "mode": mode,
+            "classes": list(classes) if classes is not None else None,
+            "seed": int(seed),
+        },
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()
