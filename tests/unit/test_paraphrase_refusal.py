@@ -2,7 +2,11 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from cfprompt.paraphrase import AdjustedParaphraseResult, is_refusal
+from cfprompt.paraphrase import (
+    AdjustedParaphraseResult,
+    is_refusal,
+    select_best_undershoot,
+)
 
 
 @pytest.mark.unit
@@ -59,3 +63,31 @@ class TestAdjustedParaphraseResult:
         )
         with pytest.raises(FrozenInstanceError):
             r.paraphrase = "y"
+
+
+@pytest.mark.unit
+class TestSelectBestUndershoot:
+    def test_picks_closest_undershoot(self):
+        attempts = [
+            {"paraphrase": "a", "actual_pct": 8.0, "deviation": 2.0},
+            {"paraphrase": "b", "actual_pct": 9.5, "deviation": 0.5},
+            {"paraphrase": "c", "actual_pct": 12.0, "deviation": 2.0},  # overshoot
+        ]
+        best = select_best_undershoot(attempts, target_pct=10.0)
+        assert best["paraphrase"] == "b"
+
+    def test_only_overshoots_falls_back_to_min_deviation(self):
+        attempts = [
+            {"paraphrase": "a", "actual_pct": 12.0, "deviation": 2.0},
+            {"paraphrase": "b", "actual_pct": 11.0, "deviation": 1.0},
+        ]
+        best = select_best_undershoot(attempts, target_pct=10.0)
+        assert best["paraphrase"] == "b"
+
+    def test_at_target_treated_as_undershoot(self):
+        attempts = [
+            {"paraphrase": "a", "actual_pct": 10.0, "deviation": 0.0},
+            {"paraphrase": "b", "actual_pct": 11.0, "deviation": 1.0},
+        ]
+        best = select_best_undershoot(attempts, target_pct=10.0)
+        assert best["paraphrase"] == "a"

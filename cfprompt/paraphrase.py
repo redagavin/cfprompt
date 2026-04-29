@@ -60,3 +60,15 @@ class AdjustedParaphraseResult:
     actual_edit_pct: float     # achieved token edit %; 0.0 when refused
     retries_used: int          # number of retries that produced any paraphrase
     refused: bool              # True iff every attempt was a refusal
+
+
+def select_best_undershoot(attempts: list[dict], target_pct: float) -> dict:
+    """From a list of attempt dicts (each with 'actual_pct' and 'deviation'),
+    return the one with smallest deviation among those whose actual_pct
+    does NOT exceed `target_pct`. If every attempt overshoots, return the
+    one with smallest deviation overall.
+    """
+    undershoots = [a for a in attempts if a["actual_pct"] <= target_pct]
+    if not undershoots:
+        return min(attempts, key=lambda x: x["deviation"])
+    return min(undershoots, key=lambda x: x["deviation"])
