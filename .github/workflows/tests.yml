@@ -17,6 +17,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: ''
-      - run: pip install -e ".[dev]"
+      - run: pip install --require-hashes -r requirements-dev.lock
+      - run: pip install -e . --no-deps
       - run: ruff check .
       - run: pytest -m "unit or integration or smoke" --cov=cfprompt --cov-fail-under=90
