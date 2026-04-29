@@ -60,6 +60,10 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
 
+[tool.ruff.lint.per-file-ignores]
+# Typer's API requires function calls (typer.Argument/Option) in defaults.
+"cfprompt/cli/main.py" = ["B008"]
+
 [tool.pytest.ini_options]
 markers = [
     "unit: pure-logic, no model or IO",
