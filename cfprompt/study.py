@@ -12,12 +12,12 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
-from . import (
+from ._version import (
     __inference_algorithm_version__,
     __paraphrase_algorithm_version__,
     __version__,
 )
-from . import __version__ as _cfprompt_version
+from ._version import __version__ as _cfprompt_version
 from .cache import (
     DiskCache,
     derive_seed,

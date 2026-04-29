@@ -2,17 +2,23 @@
 
 import logging
 
-__version__ = "0.0.1"
-
-# Bumped whenever paraphrase prompt template, refusal phrases, edit-distance
-# logic, or select-best-undershoot semantics change in a way that affects
-# cached paraphrase outputs.
-__paraphrase_algorithm_version__ = "1"
-
-# Bumped whenever prompt formatting (safe_format), score_classes
-# normalization, or any code path that changes cached probability/generation
-# values changes.
-__inference_algorithm_version__ = "1"
+from ._version import (
+    __inference_algorithm_version__,
+    __paraphrase_algorithm_version__,
+    __version__,
+)
+from .exceptions import (
+    CfpromptError,
+    ClassificationModeError,
+    ConfigError,
+    DegenerateMetricError,
+    StageNotRunError,
+)
+from .models.base import Model, Tokenizer
+from .models.hf import HFModel, HFTokenizer
+from .models.openai import OpenAIModel, TiktokenWrapper
+from .report import Report, TestResult
+from .study import Study
 
 _logger = logging.getLogger("cfprompt")
 
@@ -22,21 +28,6 @@ def set_log_level(level: str | int) -> None:
     or integer levels."""
     _logger.setLevel(level)
 
-
-# Re-exports placed after version-constant definitions because submodules
-# (e.g. cfprompt.study) import those constants at module load time.
-from .exceptions import (  # noqa: E402
-    CfpromptError,
-    ClassificationModeError,
-    ConfigError,
-    DegenerateMetricError,
-    StageNotRunError,
-)
-from .models.base import Model, Tokenizer  # noqa: E402
-from .models.hf import HFModel, HFTokenizer  # noqa: E402
-from .models.openai import OpenAIModel, TiktokenWrapper  # noqa: E402
-from .report import Report, TestResult  # noqa: E402
-from .study import Study  # noqa: E402
 
 __all__ = [
     "__version__",
