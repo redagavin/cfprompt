@@ -7,7 +7,8 @@ Companion package to *"Compared to What? Baselines and Metrics for Counterfactua
 ## Install
 
 ```bash
-pip install cfprompt
+pip install cfprompt   # PyPI release pending; for now:
+pip install -e .       # from source clone
 ```
 
 ## Quickstart
@@ -23,7 +24,7 @@ study = cfprompt.Study(
     perturb_column="question",
     target_perturbation=my_swap_function,
     prompt_template="Q: {question}\nA:",
-    target_model=cfprompt.HFModel("meta-llama/Llama-3.2-1B"),
+    target_model=cfprompt.HFModel("hf-internal-testing/tiny-random-LlamaForCausalLM"),
     paraphrase_model=cfprompt.OpenAIModel("gpt-4.1"),
     classes=["A", "B", "C", "D"],
     seed=42,
