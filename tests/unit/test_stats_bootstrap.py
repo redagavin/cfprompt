@@ -1,5 +1,3 @@
-import sys
-
 import numpy as np
 import pytest
 
@@ -79,14 +77,34 @@ class TestBootstrapDiff:
         """Bit-for-bit parity vs the paper's reference bootstrap script.
 
         cfprompt's bootstrap_diff must reproduce the published p-values
-        exactly when given the same inputs. This guards against silent
-        drift in the resampler.
+        exactly when given the same inputs. The reference function below is
+        copied verbatim from scripts/compute_medqa_flip_rate_bootstrap.py
+        (frozen for parity testing; do not edit unless the upstream changes).
+        This guards against silent drift in the resampler.
         """
-        sys.path.insert(0, "/scratch/yang.zih/cot_faithfulness/scripts")
-        try:
-            from compute_medqa_flip_rate_bootstrap import bootstrap_flip_rate_pvalue
-        finally:
-            sys.path.pop(0)
+
+        def bootstrap_flip_rate_pvalue(
+            gender_flips, benign_flips, n_bootstrap=10000, seed=42
+        ):
+            rng = np.random.RandomState(seed)
+            n = len(gender_flips)
+            gender_flips = np.asarray(gender_flips, dtype=int)
+            benign_flips = np.asarray(benign_flips, dtype=int)
+            observed_diff = gender_flips.mean() - benign_flips.mean()
+            boot_diffs = np.empty(n_bootstrap)
+            for i in range(n_bootstrap):
+                idx = rng.randint(0, n, size=n)
+                boot_diffs[i] = gender_flips[idx].mean() - benign_flips[idx].mean()
+            p_value = 2 * min(np.mean(boot_diffs <= 0), np.mean(boot_diffs >= 0))
+            p_value = min(p_value, 1.0)
+            return {
+                "gender_rate": gender_flips.mean(),
+                "benign_rate": benign_flips.mean(),
+                "observed_diff": observed_diff,
+                "ci_low": np.percentile(boot_diffs, 2.5),
+                "ci_high": np.percentile(boot_diffs, 97.5),
+                "p_value": p_value,
+            }
 
         rng = np.random.default_rng(0)
         n = 200

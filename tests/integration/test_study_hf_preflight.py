@@ -9,11 +9,18 @@ from cfprompt.models.hf import HFModel
 from cfprompt.study import Study
 
 
+# Use class_prefix="" to make the test resilient across transformers versions.
+# Older transformers tokenize " yes"/" no" as [29871, ...] (collision on the
+# leading-space token), while newer versions don't. With class_prefix="" and
+# classes ["yessir", "yep"] both starting with the SentencePiece token "▁y",
+# the collision is guaranteed for any Llama-style tokenizer regardless of
+# version (matches the assertion in tests/integration/test_hf_model_score.py).
 @pytest.fixture(scope="module")
-def hf_default_prefix():
+def hf_no_prefix():
     m = HFModel(
         name_or_path="hf-internal-testing/tiny-random-LlamaForCausalLM",
         dtype=torch.float32,
+        class_prefix="",
     )
     yield m
     m.close()
@@ -43,7 +50,7 @@ def _stub_paraphrase():
 
 @pytest.mark.integration
 class TestStudyHFPreflight:
-    def test_collision_raises_at_construction(self, hf_default_prefix):
+    def test_collision_raises_at_construction(self, hf_no_prefix):
         df = pd.DataFrame({"q": ["alpha beta gamma"]})
         with pytest.raises(ClassificationModeError, match="first token"):
             Study(
@@ -51,12 +58,12 @@ class TestStudyHFPreflight:
                 perturb_column="q",
                 target_perturbation=lambda x: x.upper(),
                 prompt_template="{q}",
-                target_model=hf_default_prefix,
+                target_model=hf_no_prefix,
                 paraphrase_model=_stub_paraphrase(),
-                classes=["yes", "no"],
+                classes=["yessir", "yep"],
             )
 
-    def test_error_message_suggests_class_prefix_empty(self, hf_default_prefix):
+    def test_error_message_names_the_colliding_classes(self, hf_no_prefix):
         df = pd.DataFrame({"q": ["alpha beta gamma"]})
         with pytest.raises(ClassificationModeError) as exc_info:
             Study(
@@ -64,8 +71,10 @@ class TestStudyHFPreflight:
                 perturb_column="q",
                 target_perturbation=lambda x: x.upper(),
                 prompt_template="{q}",
-                target_model=hf_default_prefix,
+                target_model=hf_no_prefix,
                 paraphrase_model=_stub_paraphrase(),
-                classes=["yes", "no"],
+                classes=["yessir", "yep"],
             )
-        assert "class_prefix=''" in str(exc_info.value)
+        msg = str(exc_info.value)
+        assert "yessir" in msg
+        assert "yep" in msg
