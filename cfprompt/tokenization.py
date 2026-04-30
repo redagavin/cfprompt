@@ -4,6 +4,7 @@ The Tokenizer Protocol itself is defined in `cfprompt.models.base`; this
 module owns the pure-numeric edit-distance computation that consumes any
 Protocol-conforming tokenizer's `encode` output.
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -33,8 +34,8 @@ def token_edit_distance(a: Sequence[int], b: Sequence[int]) -> int:
         for i in range(1, n + 1):
             cost = 0 if a[i - 1] == bj else 1
             curr[i] = min(
-                prev[i] + 1,        # deletion
-                curr[i - 1] + 1,    # insertion
+                prev[i] + 1,  # deletion
+                curr[i - 1] + 1,  # insertion
                 prev[i - 1] + cost,  # substitution
             )
         prev, curr = curr, prev

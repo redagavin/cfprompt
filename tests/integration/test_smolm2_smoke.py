@@ -3,6 +3,7 @@
 Marked as @pytest.mark.smoke so default pytest runs skip it. Run explicitly via
 `pytest -m smoke`. Downloads SmolLM2-135M (~270MB) on first run.
 """
+
 from unittest.mock import MagicMock
 
 import pandas as pd

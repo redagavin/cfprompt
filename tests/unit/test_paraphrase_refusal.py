@@ -11,16 +11,19 @@ from cfprompt.paraphrase import (
 
 @pytest.mark.unit
 class TestIsRefusal:
-    @pytest.mark.parametrize("text", [
-        "I can't help with that.",
-        "I cannot assist with this request.",
-        "I can't help you generate that.",
-        "I cannot fulfill this request.",
-        "I cannot fulfill the request.",
-        "As an AI, I cannot...",
-        "As a language model, I'm unable...",
-        "I can't comply with the request.",
-    ])
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "I can't help with that.",
+            "I cannot assist with this request.",
+            "I can't help you generate that.",
+            "I cannot fulfill this request.",
+            "I cannot fulfill the request.",
+            "As an AI, I cannot...",
+            "As a language model, I'm unable...",
+            "I can't comply with the request.",
+        ],
+    )
     def test_known_refusal_phrases(self, text):
         assert is_refusal(text)
 
@@ -28,11 +31,14 @@ class TestIsRefusal:
         # U+2019 right single quotation mark
         assert is_refusal("I can’t help with that.")
 
-    @pytest.mark.parametrize("text", [
-        "Sure, here is a paraphrase.",
-        "The patient presents with...",
-        "Here you go: [paraphrase]",
-    ])
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Sure, here is a paraphrase.",
+            "The patient presents with...",
+            "Here you go: [paraphrase]",
+        ],
+    )
     def test_non_refusals(self, text):
         assert not is_refusal(text)
 

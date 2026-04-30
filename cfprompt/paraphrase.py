@@ -1,4 +1,5 @@
 """Adjusted paraphrase baseline generator (port of calibrated_paraphrase.py)."""
+
 from __future__ import annotations
 
 import logging
@@ -58,10 +59,10 @@ def is_refusal(text: str) -> bool:
 class AdjustedParaphraseResult:
     """Outcome of one paraphrase request (after retries)."""
 
-    paraphrase: str            # the chosen paraphrase text (or original on full refusal)
-    actual_edit_pct: float     # achieved token edit %; 0.0 when refused
-    retries_used: int          # number of retries that produced any paraphrase
-    refused: bool              # True iff every attempt was a refusal
+    paraphrase: str  # the chosen paraphrase text (or original on full refusal)
+    actual_edit_pct: float  # achieved token edit %; 0.0 when refused
+    retries_used: int  # number of retries that produced any paraphrase
+    refused: bool  # True iff every attempt was a refusal
 
 
 def select_best_undershoot(attempts: list[dict], target_pct: float) -> dict:
@@ -102,9 +103,7 @@ _RETRY_PROMPT = (
 )
 
 
-_REFUSAL_CORRECTION = (
-    "That was a refusal. Please provide only the paraphrased text, nothing else."
-)
+_REFUSAL_CORRECTION = "That was a refusal. Please provide only the paraphrased text, nothing else."
 
 
 def generate_adjusted_paraphrase(
@@ -150,9 +149,7 @@ def generate_adjusted_paraphrase(
 
         actual_pct = token_edit_distance_pct(orig_ids, tokenizer.encode(candidate))
         deviation = abs(actual_pct - target_edit_pct)
-        attempts.append(
-            {"paraphrase": candidate, "actual_pct": actual_pct, "deviation": deviation}
-        )
+        attempts.append({"paraphrase": candidate, "actual_pct": actual_pct, "deviation": deviation})
 
         if deviation <= tolerance:
             return AdjustedParaphraseResult(

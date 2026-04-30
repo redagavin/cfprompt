@@ -2,6 +2,7 @@
 
 Run: python examples/01_quickstart.py
 """
+
 from unittest.mock import MagicMock
 
 import pandas as pd

@@ -370,7 +370,7 @@ def _generate_baselines(self) -> None:
 
         per_sample_seed = derive_seed(self.seed, str(sample_id))
 
-        result = DiskCache._MISS
+        result = DiskCache.MISS
         if self._paraphrase_cache is not None:
             key = paraphrase_cache_key(
                 stage_version=__paraphrase_algorithm_version__,
@@ -384,9 +384,9 @@ def _generate_baselines(self) -> None:
                 max_retries=self.max_retries,
                 seed=per_sample_seed,
             )
-            result = self._paraphrase_cache.get(key, default=DiskCache._MISS)
+            result = self._paraphrase_cache.get(key, default=DiskCache.MISS)
 
-        if result is DiskCache._MISS:
+        if result is DiskCache.MISS:
             result = generate_adjusted_paraphrase(
                 text=original,
                 target_edit_pct=target_edit_pct,
@@ -476,15 +476,15 @@ def _run_inference(self) -> None:
 
         record = dict(row)
         if self.mode == "classification":
-            cached_probs: list = [DiskCache._MISS] * 3
+            cached_probs: list = [DiskCache.MISS] * 3
             need_compute_idx: list[int] = []
             if self._inference_cache is not None:
                 keys: list[str] = [
                     _cache_key_for(prompts[i], sample_id, CONDITION_NAMES[i]) for i in range(3)
                 ]
                 for i in range(3):
-                    cached_probs[i] = self._inference_cache.get(keys[i], default=DiskCache._MISS)
-                    if cached_probs[i] is DiskCache._MISS:
+                    cached_probs[i] = self._inference_cache.get(keys[i], default=DiskCache.MISS)
+                    if cached_probs[i] is DiskCache.MISS:
                         need_compute_idx.append(i)
             else:
                 keys = []
@@ -502,7 +502,7 @@ def _run_inference(self) -> None:
                     if self._inference_cache is not None:
                         self._inference_cache.set(keys[i], val)
 
-            assert all(p is not DiskCache._MISS for p in cached_probs)
+            assert all(p is not DiskCache.MISS for p in cached_probs)
             if any(p is None for p in cached_probs):
                 n_openai_missing += 1
                 continue
@@ -514,13 +514,13 @@ def _run_inference(self) -> None:
             record["label_target"] = self.classes[int(np.argmax(cached_probs[1]))]
             record["label_base"] = self.classes[int(np.argmax(cached_probs[2]))]
         else:
-            cached_gens: list = [DiskCache._MISS] * 3
+            cached_gens: list = [DiskCache.MISS] * 3
             need_compute_idx = []
             if self._inference_cache is not None:
                 keys = [_cache_key_for(prompts[i], sample_id, CONDITION_NAMES[i]) for i in range(3)]
                 for i in range(3):
-                    cached_gens[i] = self._inference_cache.get(keys[i], default=DiskCache._MISS)
-                    if cached_gens[i] is DiskCache._MISS:
+                    cached_gens[i] = self._inference_cache.get(keys[i], default=DiskCache.MISS)
+                    if cached_gens[i] is DiskCache.MISS:
                         need_compute_idx.append(i)
             else:
                 keys = []
@@ -535,7 +535,7 @@ def _run_inference(self) -> None:
                     cached_gens[i] = fresh[j]
                     if self._inference_cache is not None:
                         self._inference_cache.set(keys[i], fresh[j])
-            assert all(g is not DiskCache._MISS for g in cached_gens)
+            assert all(g is not DiskCache.MISS for g in cached_gens)
 
             labels: list[str] = []
             ok = True

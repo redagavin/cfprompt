@@ -80,9 +80,7 @@ class TestFitLevel:
         fit = fit_level(direction_stacked, y_stacked, z_stacked, sample_id)
         # Recompute via statsmodels and compare CI.
         X = sm.add_constant(np.column_stack([z_stacked, direction_stacked]))
-        model = sm.OLS(y_stacked, X).fit(
-            cov_type="cluster", cov_kwds={"groups": sample_id}
-        )
+        model = sm.OLS(y_stacked, X).fit(cov_type="cluster", cov_kwds={"groups": sample_id})
         ci = np.asarray(model.conf_int(alpha=0.05))[2]
         assert fit.ci_low_95 == pytest.approx(float(ci[0]), abs=1e-10)
         assert fit.ci_high_95 == pytest.approx(float(ci[1]), abs=1e-10)

@@ -3,7 +3,16 @@
 Both metrics clip probabilities at eps=1e-12 before taking logs to defend
 against fp16 underflow (HFModel) and OpenAI's renormalization-after-
 top_logprobs path.
+
+Clip-count semantics (study.py reports ``clipped_kl_count``): the count
+records ANY channel whose probability falls below EPS in EITHER condition
+arm — including harmless clips that do not change the metric value (e.g.,
+matched zeros across both arms, or zeros in p that are masked by the
+0*log(0):=0 convention). The count is intentionally an over-estimate of
+"rows whose KL value materially depended on the clip"; treat it as an
+upper bound when diagnosing fp16 underflow.
 """
+
 from __future__ import annotations
 
 import numpy as np

@@ -1,6 +1,7 @@
 # ABOUTME: HFModel and HFTokenizer — transformers-backed Model implementation.
 # ABOUTME: HFTokenizer wraps AutoTokenizer to expose cache_id pinned to a revision SHA.
 """HFModel: transformers-backed Model implementation."""
+
 from __future__ import annotations
 
 import contextlib
@@ -71,8 +72,8 @@ class HFTokenizer:
     AutoTokenizer (which lacks a `cache_id` of its own)."""
 
     name_or_path: str
-    revision_label: str           # original `revision` kwarg ("main" / "v1" / SHA)
-    resolved_sha: str | None      # SHA when available, else None (fallback to literal label)
+    revision_label: str  # original `revision` kwarg ("main" / "v1" / SHA)
+    resolved_sha: str | None  # SHA when available, else None (fallback to literal label)
     _tokenizer: _AutoTokenizer
 
     @classmethod
@@ -212,8 +213,7 @@ class HFModel(Model):
         if first is not None:
             return first.device
         _logger.debug(
-            "HFModel: model has no parameters; falling back to cpu for "
-            "sampling-device resolution"
+            "HFModel: model has no parameters; falling back to cpu for sampling-device resolution"
         )
         return torch.device("cpu")
 
@@ -262,10 +262,7 @@ class HFModel(Model):
             with torch.no_grad():
                 out_ids = self._model.generate(**gen_kwargs)
             new_tokens = out_ids[:, prompt_len:]
-            return [
-                underlying.decode(row, skip_special_tokens=True)
-                for row in new_tokens
-            ]
+            return [underlying.decode(row, skip_special_tokens=True) for row in new_tokens]
 
         # Stochastic decoding with heterogeneous per-prompt seeds -> batch=1
         # with fork_rng so seed setting doesn't bleed into the rest of the
@@ -375,12 +372,10 @@ class HFModel(Model):
             input_ids = enc["input_ids"].to(device)
             attention_mask = enc["attention_mask"].to(device)
             with torch.no_grad():
-                logits = self._model(
-                    input_ids=input_ids, attention_mask=attention_mask
-                ).logits
+                logits = self._model(input_ids=input_ids, attention_mask=attention_mask).logits
             # Last position is index -1 because padding is left-side.
-            last_logits = logits[:, -1, :]                     # (batch, vocab)
-            class_logits = last_logits[:, first_token_ids]     # (batch, k)
+            last_logits = logits[:, -1, :]  # (batch, vocab)
+            class_logits = last_logits[:, first_token_ids]  # (batch, k)
             class_probs = torch.softmax(class_logits.float(), dim=-1).cpu().numpy()
             out[start : start + class_probs.shape[0]] = class_probs
 

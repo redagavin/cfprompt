@@ -4,6 +4,7 @@ The Model ABC defines the minimum surface that the Study orchestrator,
 paraphrase pipeline, and metrics consume. Concrete subclasses (OpenAIModel,
 HFModel) live in sibling modules.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

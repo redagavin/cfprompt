@@ -28,8 +28,7 @@ class TestOpenAIModelInit:
         monkeypatch.setattr(omod.OpenAIModel, "_warmup", fake_warmup)
         m = OpenAIModel(name="gpt-4.1", api_key="fake-key")
         assert m.cache_id == (
-            "openai:gpt-4.1|temp=0.0|top_p=1.0|max_tok=512"
-            "|class_prefix=' '|fp=fp_test_abc123"
+            "openai:gpt-4.1|temp=0.0|top_p=1.0|max_tok=512|class_prefix=' '|fp=fp_test_abc123"
         )
 
     def test_warmup_missing_fingerprint_uses_uuid(self, monkeypatch):
@@ -69,3 +68,75 @@ class TestOpenAIModelInit:
         assert "temp=0.7" in m.cache_id
         assert "top_p=0.9" in m.cache_id
         assert "max_tok=128" in m.cache_id
+
+    def test_warmup_does_not_send_sampling_params(self, monkeypatch):
+        """Reasoning models (o1, o3, gpt-5) reject temperature and top_p
+        with a 400. Warmup should send only model + messages."""
+        from cfprompt.models import openai as omod
+
+        captured: dict = {}
+
+        class FakeCompletions:
+            def create(self_inner, **kwargs):
+                captured.update(kwargs)
+
+                class _Resp:
+                    system_fingerprint = "fp_warmup_ok"
+
+                return _Resp()
+
+        class FakeChat:
+            completions = FakeCompletions()
+
+        class FakeClient:
+            chat = FakeChat()
+
+            def __init__(self_inner, **kwargs):
+                pass
+
+        monkeypatch.setattr(omod, "OpenAI", FakeClient)
+        m = OpenAIModel(
+            name="o3",
+            api_key="fake-key",
+            temperature=0.7,
+            top_p=0.9,
+        )
+        assert "temperature" not in captured
+        assert "top_p" not in captured
+        assert captured["model"] == "o3"
+        assert m._system_fingerprint == "fp_warmup_ok"
+
+    def test_warmup_propagates_400_on_unsupported_model(self, monkeypatch):
+        """If the API still rejects warmup (e.g. unknown model), the offline
+        UUID fallback engages. Simulate a 400 response and verify cache_id
+        falls back to unknown- prefix."""
+        from openai import APIStatusError
+
+        from cfprompt.models import openai as omod
+
+        class FakeCompletions:
+            def create(self_inner, **kwargs):
+                req = type("R", (), {"method": "POST", "url": "/chat"})()
+
+                class _Resp:
+                    status_code = 400
+                    headers: dict = {}
+                    request = req
+
+                    def json(self_resp):
+                        return {"error": {"message": "bad", "code": "bad"}}
+
+                raise APIStatusError("bad", response=_Resp(), body={"code": "bad"})
+
+        class FakeChat:
+            completions = FakeCompletions()
+
+        class FakeClient:
+            chat = FakeChat()
+
+            def __init__(self_inner, **kwargs):
+                pass
+
+        monkeypatch.setattr(omod, "OpenAI", FakeClient)
+        m = OpenAIModel(name="bogus-model", api_key="fake-key")
+        assert "fp=unknown-" in m.cache_id

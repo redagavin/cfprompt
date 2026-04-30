@@ -4,6 +4,7 @@ See spec §5.4 and §5.5.1 for the contract. Both models operate on
 log p(outcome_class) (per-class log-probability), not binary log-odds
 (BiB-style). v1 limitation acknowledged in the spec.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

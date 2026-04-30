@@ -117,8 +117,7 @@ class TestReport:
         with caplog.at_level(logging.WARNING, logger="cfprompt.report"):
             a.merge(b)
         assert any(
-            "cfprompt_version" in rec.message and "differ" in rec.message
-            for rec in caplog.records
+            "cfprompt_version" in rec.message and "differ" in rec.message for rec in caplog.records
         )
 
 
@@ -155,9 +154,7 @@ class TestJsonSafe:
         assert _json_safe(True) is True
         assert _json_safe(False) is False
 
-    def test_to_json_with_nan_statistic_produces_strict_parseable_json(
-        self, tmp_path: Path
-    ):
+    def test_to_json_with_nan_statistic_produces_strict_parseable_json(self, tmp_path: Path):
         """RFC 8259 strict parsers reject literal `NaN`. The Report must emit
         valid JSON even when a TestResult has non-finite statistics."""
         r = Report(

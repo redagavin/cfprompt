@@ -4,6 +4,7 @@ JSON output contract: NaN and ±Infinity float values are sanitized to ``null``
 so emitted JSON conforms to RFC 8259 (the Python default ``allow_nan=True``
 emits literal ``NaN``/``Infinity`` tokens, which strict parsers reject).
 """
+
 from __future__ import annotations
 
 import json
@@ -97,8 +98,7 @@ class Report:
         other_leaf = {k: v for k, v in other.metadata.items() if k != "merged_from"}
 
         divergent = sorted(
-            k for k in set(self_leaf) & set(other_leaf)
-            if self_leaf[k] != other_leaf[k]
+            k for k in set(self_leaf) & set(other_leaf) if self_leaf[k] != other_leaf[k]
         )
         if divergent:
             logger.warning(

@@ -1,6 +1,7 @@
 # ABOUTME: OpenAIModel and TiktokenWrapper - Chat Completions-backed Model implementation.
 # ABOUTME: TiktokenWrapper wraps tiktoken encodings to expose the Tokenizer Protocol.
 """OpenAIModel: Chat Completions-backed Model implementation."""
+
 from __future__ import annotations
 
 import logging
@@ -122,6 +123,10 @@ class OpenAIModel(Model):
     def _warmup(self) -> None:
         """Issue a 1-token completion to resolve system_fingerprint.
 
+        Sampling parameters (temperature, top_p) are intentionally omitted:
+        reasoning models (o1, o3, gpt-5) reject them with a 400, and warmup
+        only needs the fingerprint, not deterministic output.
+
         Subclasses/tests can monkeypatch this to inject a fingerprint or
         simulate offline failure.
         """
@@ -129,9 +134,6 @@ class OpenAIModel(Model):
         resp = client.chat.completions.create(
             model=self.name,
             messages=[{"role": "user", "content": "ok"}],
-            max_completion_tokens=1,
-            temperature=self.temperature,
-            top_p=self.top_p,
         )
         self._system_fingerprint = getattr(resp, "system_fingerprint", None)
 
@@ -177,13 +179,17 @@ class OpenAIModel(Model):
                 if attempt == self.max_retries:
                     _logger.error(
                         "OpenAIModel: exhausted %d retries on %s",
-                        self.max_retries, type(e).__name__,
+                        self.max_retries,
+                        type(e).__name__,
                     )
                     raise
                 wait = min(delay, self.backoff_max_seconds)
                 _logger.warning(
                     "OpenAIModel: %s (attempt %d/%d); retrying in %.1fs",
-                    type(e).__name__, attempt + 1, self.max_retries + 1, wait,
+                    type(e).__name__,
+                    attempt + 1,
+                    self.max_retries + 1,
+                    wait,
                 )
                 time.sleep(wait)
                 delay *= 2
@@ -192,7 +198,10 @@ class OpenAIModel(Model):
                     wait = min(delay, self.backoff_max_seconds)
                     _logger.warning(
                         "OpenAIModel: %d (attempt %d/%d); retrying in %.1fs",
-                        e.status_code, attempt + 1, self.max_retries + 1, wait,
+                        e.status_code,
+                        attempt + 1,
+                        self.max_retries + 1,
+                        wait,
                     )
                     time.sleep(wait)
                     delay *= 2
@@ -257,13 +266,17 @@ class OpenAIModel(Model):
                 if attempt == self.max_retries:
                     _logger.error(
                         "OpenAIModel: exhausted %d retries on %s",
-                        self.max_retries, type(e).__name__,
+                        self.max_retries,
+                        type(e).__name__,
                     )
                     raise
                 wait = min(delay, self.backoff_max_seconds)
                 _logger.warning(
                     "OpenAIModel: %s (attempt %d/%d); retrying in %.1fs",
-                    type(e).__name__, attempt + 1, self.max_retries + 1, wait,
+                    type(e).__name__,
+                    attempt + 1,
+                    self.max_retries + 1,
+                    wait,
                 )
                 time.sleep(wait)
                 delay *= 2
@@ -272,7 +285,10 @@ class OpenAIModel(Model):
                     wait = min(delay, self.backoff_max_seconds)
                     _logger.warning(
                         "OpenAIModel: %d (attempt %d/%d); retrying in %.1fs",
-                        e.status_code, attempt + 1, self.max_retries + 1, wait,
+                        e.status_code,
+                        attempt + 1,
+                        self.max_retries + 1,
+                        wait,
                     )
                     time.sleep(wait)
                     delay *= 2

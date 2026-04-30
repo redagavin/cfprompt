@@ -4,14 +4,17 @@ This module owns:
 - derive_seed: deterministic seed derivation across processes/Python versions
 - (later) cache key composition, atomic file IO, hash-prefix sharding
 """
+
 from __future__ import annotations
 
 import contextlib
 import hashlib
 import json
+import logging
 import os
 import pickle
 import string
+import struct
 import tempfile
 import time
 from pathlib import Path
@@ -19,15 +22,13 @@ from typing import Any
 
 from .exceptions import ConfigError
 
-_AcceptedSeedPart = (int, str, tuple)
+logger = logging.getLogger(__name__)
 
 
 def _check_seed_part(p: Any) -> None:
     if isinstance(p, bool):
         # bool is a subclass of int, but we want explicit int only
-        raise TypeError(
-            f"derive_seed parts must be int, str, or tuple thereof; got bool ({p!r})"
-        )
+        raise TypeError(f"derive_seed parts must be int, str, or tuple thereof; got bool ({p!r})")
     if isinstance(p, int):
         return
     if isinstance(p, str):
@@ -37,8 +38,7 @@ def _check_seed_part(p: Any) -> None:
             _check_seed_part(sub)
         return
     raise TypeError(
-        f"derive_seed parts must be int, str, or tuple thereof; got "
-        f"{type(p).__name__} ({p!r})"
+        f"derive_seed parts must be int, str, or tuple thereof; got {type(p).__name__} ({p!r})"
     )
 
 
@@ -57,9 +57,7 @@ def derive_seed(study_seed: int, *parts: Any) -> int:
     the signed int64 max.
     """
     if not isinstance(study_seed, int) or isinstance(study_seed, bool):
-        raise TypeError(
-            f"study_seed must be int; got {type(study_seed).__name__}"
-        )
+        raise TypeError(f"study_seed must be int; got {type(study_seed).__name__}")
     for p in parts:
         _check_seed_part(p)
     blob = json.dumps([study_seed, *parts], sort_keys=True).encode("utf-8")
@@ -160,7 +158,13 @@ def paraphrase_cache_key(
     max_retries: int,
     seed: int,
 ) -> str:
-    """SHA-256 hex digest of canonical JSON of all paraphrase inputs."""
+    """SHA-256 hex digest of canonical JSON of all paraphrase inputs.
+
+    Note on ``target_edit_pct``: rounded to 4 decimals when hashed. The
+    paraphrase loop's tolerance is well above 1e-4 (default 0.5pp = 5e-3),
+    so 4 decimals provides ample headroom while preventing spurious cache
+    misses from tiny float-representation differences in the same target.
+    """
     blob = json.dumps(
         {
             "stage_version": stage_version,
@@ -214,15 +218,18 @@ class DiskCache:
     Treat cache_dir as user-private. See spec §6.6.
     """
 
-    _MISS = object()
+    MISS = object()
 
     def __init__(self, cache_dir: str | Path, namespace: str) -> None:
         self.root = Path(cache_dir) / namespace
         self.root.mkdir(parents=True, exist_ok=True)
 
     def _path(self, key: str) -> Path:
-        if len(key) < 4:
-            raise ValueError(f"cache key too short: {key!r}")
+        # Cache keys are always 64-char lowercase hex sha256 digests.
+        if len(key) != 64:
+            raise ValueError(
+                f"cache key must be a 64-char sha256 hex digest; got len={len(key)}: {key!r}"
+            )
         return self.root / key[:2] / key[2:4] / f"{key}.pkl"
 
     def get(self, key: str, default=None):
@@ -231,7 +238,11 @@ class DiskCache:
         successfully-cached `None` value is returned as `None` by default —
         which is indistinguishable from a miss. Call sites that need to
         disambiguate (e.g., `_run_inference` storing `None` for
-        OpenAI dynamic missing-class) pass `default=DiskCache._MISS`."""
+        OpenAI dynamic missing-class) pass `default=DiskCache.MISS`.
+
+        On a corrupt cache file (EOFError / UnpicklingError / struct.error),
+        retries once after a short sleep; if still corrupt, logs a WARNING
+        and returns `default` (treating the file as a miss)."""
         path = self._path(key)
         for _attempt in range(2):
             try:
@@ -239,8 +250,9 @@ class DiskCache:
                     return pickle.load(f)
             except FileNotFoundError:
                 return default
-            except (EOFError, pickle.UnpicklingError):
+            except (EOFError, pickle.UnpicklingError, struct.error):
                 time.sleep(0.05)
+        logger.warning("cache file at %s appears corrupt; treating as miss", path)
         return default
 
     def has(self, key: str) -> bool:
@@ -256,8 +268,14 @@ class DiskCache:
             dir=str(path.parent),
         )
         try:
+            # Spec §6: write tmp, fsync, os.replace(tmp, final). The fsync
+            # guarantees the file's bytes hit the disk platter before the
+            # atomic rename, so a crash between fdopen and os.replace cannot
+            # leave a half-written tmp file masquerading as the final value.
             with os.fdopen(tmp_fd, "wb") as f:
                 pickle.dump(value, f)
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp_path, path)
         except Exception:
             with contextlib.suppress(FileNotFoundError):
