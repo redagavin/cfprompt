@@ -1,0 +1,43 @@
+{
+  "id": "chatcmpl-low-prior",
+  "object": "chat.completion",
+  "model": "gpt-4.1-2024-08-06",
+  "system_fingerprint": "fp_test_abc123",
+  "choices": [
+    {
+      "index": 0,
+      "message": {"role": "assistant", "content": " I"},
+      "finish_reason": "stop",
+      "logprobs": {
+        "content": [
+          {
+            "token": " I",
+            "logprob": -0.1,
+            "top_logprobs": [
+              {"token": " I", "logprob": -0.1},
+              {"token": " The", "logprob": -1.0},
+              {"token": " A", "logprob": -1.5},
+              {"token": " B", "logprob": -1.6},
+              {"token": " To", "logprob": -2.0},
+              {"token": " On", "logprob": -2.1},
+              {"token": " In", "logprob": -2.2},
+              {"token": " As", "logprob": -2.3},
+              {"token": " Of", "logprob": -2.4},
+              {"token": " For", "logprob": -2.5},
+              {"token": " From", "logprob": -2.6},
+              {"token": " By", "logprob": -2.7},
+              {"token": " With", "logprob": -2.8},
+              {"token": " About", "logprob": -2.9},
+              {"token": " Over", "logprob": -3.0},
+              {"token": " Under", "logprob": -3.1},
+              {"token": " Around", "logprob": -3.2},
+              {"token": " Through", "logprob": -3.3},
+              {"token": " Yes", "logprob": -3.4},
+              {"token": " No", "logprob": -3.5}
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
