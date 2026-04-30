@@ -1,3 +1,5 @@
+import sys
+
 import numpy as np
 import pytest
 
@@ -72,6 +74,50 @@ class TestBootstrapDiff:
         )
         assert result.statistic == 0.0
         assert result.extra.get("degenerate") is True
+
+    def test_bootstrap_diff_matches_reference_script(self):
+        """Bit-for-bit parity vs the paper's reference bootstrap script.
+
+        cfprompt's bootstrap_diff must reproduce the published p-values
+        exactly when given the same inputs. This guards against silent
+        drift in the resampler.
+        """
+        sys.path.insert(0, "/scratch/yang.zih/cot_faithfulness/scripts")
+        try:
+            from compute_medqa_flip_rate_bootstrap import bootstrap_flip_rate_pvalue
+        finally:
+            sys.path.pop(0)
+
+        rng = np.random.default_rng(0)
+        n = 200
+        labels_orig = rng.choice(["A", "B"], size=n, p=[0.6, 0.4])
+        labels_target = labels_orig.copy()
+        flip_mask = rng.random(n) < 0.20
+        labels_target[flip_mask] = np.where(labels_target[flip_mask] == "A", "B", "A")
+        labels_baseline = labels_orig.copy()
+        flip_mask2 = rng.random(n) < 0.05
+        labels_baseline[flip_mask2] = np.where(labels_baseline[flip_mask2] == "A", "B", "A")
+
+        result = bootstrap_diff(
+            labels_orig=labels_orig,
+            labels_target=labels_target,
+            labels_baseline=labels_baseline,
+            metric_fn=flip_rate,
+            metric_name="flip_rate",
+            n_bootstrap=10000,
+            seed=42,
+        )
+
+        gender_flips = (labels_orig != labels_target).astype(int)
+        benign_flips = (labels_orig != labels_baseline).astype(int)
+        reference = bootstrap_flip_rate_pvalue(
+            gender_flips, benign_flips, n_bootstrap=10000, seed=42
+        )
+
+        assert result.statistic == pytest.approx(reference["observed_diff"], abs=1e-12)
+        assert result.p_value == pytest.approx(reference["p_value"], abs=1e-12)
+        assert result.ci_low == pytest.approx(reference["ci_low"], abs=1e-12)
+        assert result.ci_high == pytest.approx(reference["ci_high"], abs=1e-12)
 
     def test_bootstrap_unstable_when_many_resamples_drop(self):
         """When >5% of resamples raise DegenerateMetricError, the result
