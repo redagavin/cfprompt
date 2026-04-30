@@ -3,33 +3,8 @@ import pandas as pd
 import pytest
 
 from cfprompt.study import Study
-
-
-class _StubTokenizer:
-    def encode(self, t):
-        return [hash(w) & 0xFFFF for w in t.split()]
-
-    @property
-    def cache_id(self):
-        return "tok:1"
-
-
-class _StubModel:
-    def __init__(self, cache_id="m:1", probs_per_call=None, gens_per_call=None):
-        self.cache_id = cache_id
-        self.tokenizer = _StubTokenizer()
-        self._probs = probs_per_call
-        self._gens = gens_per_call
-
-    def score_classes(self, prompts, classes, per_prompt_seeds=None):
-        return (
-            self._probs.pop(0)
-            if self._probs
-            else np.full((len(prompts), len(classes)), 1.0 / len(classes))
-        )
-
-    def generate(self, prompts, per_prompt_seeds=None):
-        return self._gens.pop(0) if self._gens else [""] * len(prompts)
+from tests.conftest import StubModel as _StubModel
+from tests.conftest import StubTokenizer as _StubTokenizer
 
 
 @pytest.mark.integration

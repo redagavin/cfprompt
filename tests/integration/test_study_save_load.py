@@ -7,36 +7,7 @@ import pytest
 from cfprompt.exceptions import ConfigError, StageNotRunError
 from cfprompt.report import Report
 from cfprompt.study import Study
-
-
-class _StubTokenizer:
-    def encode(self, t):
-        return [hash(w) & 0xFFFF for w in t.split()]
-
-    @property
-    def cache_id(self):
-        return "tok:1"
-
-
-class _StubModel:
-    def __init__(self, cache_id="m:1", probs_per_call=None, gens_per_call=None):
-        self.cache_id = cache_id
-        self.tokenizer = _StubTokenizer()
-        self._probs = list(probs_per_call) if probs_per_call else None
-        self._gens = list(gens_per_call) if gens_per_call else None
-
-    def score_classes(self, prompts, classes, per_prompt_seeds=None):
-        if self._probs:
-            return self._probs.pop(0)
-        return np.full((len(prompts), len(classes)), 1.0 / len(classes))
-
-    def generate(self, prompts, per_prompt_seeds=None):
-        if self._gens:
-            return self._gens.pop(0)
-        return [""] * len(prompts)
-
-    def close(self):
-        pass
+from tests.conftest import StubModel as _StubModel
 
 
 def _build_classification_study():
