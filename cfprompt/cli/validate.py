@@ -7,6 +7,7 @@ from pathlib import Path
 import typer
 
 from .config import StudyConfig, load_yaml
+from .imports import resolve_callable
 
 
 def validate_command(
@@ -30,7 +31,21 @@ def validate_command(
         return 1
     typer.echo(f"OK: {config_path} parses and validates.")
     if not no_import:
-        typer.echo(f"  target_perturbation = {cfg.target_perturbation}")
+        try:
+            resolve_callable(cfg.target_perturbation)
+        except (ImportError, AttributeError, ValueError) as e:
+            typer.echo(
+                f"target_perturbation resolution failed: {e}", err=True
+            )
+            return 1
+        typer.echo(f"  target_perturbation = {cfg.target_perturbation} (resolved)")
         if cfg.extract_label:
-            typer.echo(f"  extract_label = {cfg.extract_label}")
+            try:
+                resolve_callable(cfg.extract_label)
+            except (ImportError, AttributeError, ValueError) as e:
+                typer.echo(
+                    f"extract_label resolution failed: {e}", err=True
+                )
+                return 1
+            typer.echo(f"  extract_label = {cfg.extract_label} (resolved)")
     return 0
