@@ -28,6 +28,11 @@ class TestBootstrapDiff:
         assert result.metric == "flip_rate"
         assert result.p_value_kind == "two-sided"
         assert result.ci_kind == "percentile"
+        assert result.n == 100
+        assert isinstance(result.statistic, float)
+        assert isinstance(result.p_value, float)
+        assert 0.0 <= result.p_value <= 1.0
+        assert result.ci_low <= result.statistic <= result.ci_high
 
     def test_recovers_signal_when_target_has_more_flips(self):
         rng = np.random.default_rng(0)
