@@ -16,7 +16,7 @@ def validate(
         False, "--no-import", help="Skip module:function imports (offline-safe)"
     ),
 ) -> None:
-    """Schema-only check; no expensive calls."""
+    """Validate a YAML config: parse, schema-check, and (unless --no-import) import the referenced module:function callables. SECURITY: imports execute the user's Python code; use --no-import for untrusted YAML."""  # noqa: E501
     from .validate import validate_command
 
     raise typer.Exit(code=validate_command(config_path, no_import=no_import))

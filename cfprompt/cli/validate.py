@@ -14,8 +14,9 @@ def validate_command(
     config_path: Path,
     no_import: bool = False,
 ) -> int:
-    """Schema-only validation; on --no-import, skips module:function imports
-    and any network calls."""
+    """Validate a YAML config: parse, schema-check, and (unless no_import) import
+    the referenced module:function callables. SECURITY: imports execute the user's
+    Python code; pass no_import=True for untrusted YAML."""
     if not config_path.exists():
         typer.echo(f"config file not found: {config_path}", err=True)
         return 1
