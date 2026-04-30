@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cfprompt.exceptions import ConfigError
+from cfprompt.exceptions import CfpromptError, ConfigError
 from cfprompt.report import Report
 from cfprompt.study import Study
 
@@ -117,3 +117,54 @@ class TestStudyTest:
         s = self._classification_study()
         report = s.run_all(metrics=["jsd"], regression_model="level")
         assert report.metadata.get("regression_model") in (None, "level")
+
+    def test_regression_outcome_class_lookup_raises_cfprompt_error(self):
+        """If inference_df has outcome_class values not in self.classes (e.g.
+        the user mutated the frame after preflight), _run_regression must
+        raise CfpromptError, not the raw ValueError from list.index."""
+        df = pd.DataFrame(
+            {
+                "q": [f"alpha beta gamma delta epsilon zeta eta theta {i}" for i in range(20)],
+                "dir": [1, -1] * 10,
+                "outcome": ["A"] * 20,
+            }
+        )
+        rng = np.random.default_rng(0)
+        calls = [
+            np.stack(
+                [
+                    rng.dirichlet([2.0, 2.0]),
+                    rng.dirichlet([1.0, 4.0]),
+                    rng.dirichlet([2.1, 1.9]),
+                ]
+            )
+            for _ in range(20)
+        ]
+        para = _StubModel(
+            cache_id="para",
+            gens_per_call=[
+                [f"alpha BeTa gamma delta epsilon zeta eta theta {i}"] for i in range(20)
+            ],
+        )
+        target = _StubModel(cache_id="tgt", probs_per_call=calls)
+        s = Study(
+            data=df,
+            perturb_column="q",
+            target_perturbation=lambda x: x.replace("beta", "BETA"),
+            prompt_template="{q}",
+            target_model=target,
+            paraphrase_model=para,
+            classes=["A", "B"],
+            direction_column="dir",
+            outcome_class_column="outcome",
+            alternative="greater",
+            tolerance=50.0,
+            max_retries=0,
+            n_bootstrap=200,
+        )
+        s.generate_baselines()
+        s.run_inference()
+        # Mutate the inference frame to slip an invalid value past preflight.
+        s._inference_df.loc[s._inference_df.index[0], "outcome"] = "Z"
+        with pytest.raises(CfpromptError, match=r"outcome_class_column"):
+            s.test(metrics=["regression"], regression_model="difference")

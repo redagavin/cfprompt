@@ -685,7 +685,14 @@ def _study_test(
 def _run_regression(self, which: str, probs_orig, probs_target, probs_base):
     df = self._inference_df
     direction = df[self.direction_column].astype(float).to_numpy()
-    outcome_idx = np.array([self.classes.index(c) for c in df[self.outcome_class_column]])
+    try:
+        outcome_idx = np.array([self.classes.index(c) for c in df[self.outcome_class_column]])
+    except ValueError as e:
+        offenders = sorted(set(df[self.outcome_class_column]) - set(self.classes))
+        raise CfpromptError(
+            f"outcome_class_column={self.outcome_class_column!r} contains values "
+            f"not in classes={self.classes}: {offenders}. Original error: {e}"
+        ) from e
     eps = 1e-12
     n = len(df)
     raw_orig = probs_orig[np.arange(n), outcome_idx]
