@@ -142,6 +142,47 @@ class TestStudySaveLoad:
         loaded.reset_inference()
         loaded.run_inference()
 
+    def test_freeform_load_without_extract_label_then_run_inference_raises(
+        self, tmp_path: Path
+    ):
+        """Loading a free-form study without re-supplying extract_label
+        leaves the XOR invariant violated. run_inference() must surface
+        a StageNotRunError pointing at the fix."""
+        df = pd.DataFrame({"q": [f"alpha beta gamma {i}" for i in range(3)]})
+        para = _StubModel(
+            cache_id="para",
+            gens_per_call=[[f"alpha BETA gamma {i}"] for i in range(3)],
+        )
+        target = _StubModel(
+            cache_id="t",
+            gens_per_call=[
+                ["RESULT: red", "RESULT: red", "RESULT: red"],
+                ["RESULT: blue", "RESULT: blue", "RESULT: blue"],
+                ["RESULT: green", "RESULT: green", "RESULT: green"],
+            ],
+        )
+        s = Study(
+            data=df,
+            perturb_column="q",
+            target_perturbation=lambda x: x.replace("beta", "BETA"),
+            prompt_template="{q}",
+            target_model=target,
+            paraphrase_model=para,
+            extract_label=lambda r: "found" if "RESULT" in r else None,
+            tolerance=50.0,
+            max_retries=0,
+        )
+        s.generate_baselines()
+        path = tmp_path / "study.pkl"
+        s.save(path)
+        # Load WITHOUT extract_label — XOR invariant violated.
+        loaded = Study.load(path)
+        assert loaded.mode == "free_form"
+        assert loaded.extract_label is None
+        loaded.reset_inference()
+        with pytest.raises(StageNotRunError, match=r"extract_label"):
+            loaded.run_inference()
+
     def test_reset_inference_allows_rerun(self, tmp_path: Path):
         """reset_inference() must clear the cached frame so a subsequent
         run_inference() recomputes."""

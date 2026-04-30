@@ -512,6 +512,11 @@ CONDITION_KEYS = ("original", "target_perturbed", "baseline_perturbed")
 def _run_inference(self) -> None:
     if self._inference_df is not None:
         return
+    if self.mode == "free_form" and self.extract_label is None:
+        raise StageNotRunError(
+            "Free-form study loaded without extract_label; re-supply "
+            "extract_label= to Study.load() or pass it via reextract()."
+        )
     self._check_cache_id_match("run_inference")
     if self._baselines_df is None:
         self.generate_baselines()
