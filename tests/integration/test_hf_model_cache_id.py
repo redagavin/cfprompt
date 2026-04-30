@@ -15,7 +15,7 @@ class TestHFModelCacheId:
             class_prefix=" ",
         )
         cid = m.cache_id
-        # f"hf:{name}@{sha-or-label}|dtype={dtype}|class_prefix={repr(class_prefix)}|max_new_tokens={n}"
+        # Format: hf:{name}@{sha}|dtype={dtype}|class_prefix={repr(class_prefix)}|max_new_tokens={n}
         assert cid.startswith("hf:hf-internal-testing/tiny-random-LlamaForCausalLM@")
         assert "|dtype=torch.float32" in cid
         assert "|class_prefix=' '" in cid

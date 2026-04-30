@@ -345,8 +345,7 @@ class HFModel(Model):
                 else ""
             )
             details = "; ".join(
-                f"first token id {tid}: {cs!r}"
-                for tid, cs in sorted(colliding.items())
+                f"first token id {tid}: {cs!r}" for tid, cs in sorted(colliding.items())
             )
             raise ClassificationModeError(
                 f"First-token collisions under {self._tokenizer_wrapper.cache_id} "

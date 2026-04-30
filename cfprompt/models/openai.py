@@ -200,7 +200,7 @@ class OpenAIModel(Model):
                 client.close()
             self._client = None
 
-    def _get_client(self) -> "OpenAI":
+    def _get_client(self) -> OpenAI:
         """Return a process-lifetime OpenAI client. Lazy so warmup paths and
         tests that don't actually call create() don't open a connection
         pool."""
@@ -388,18 +388,14 @@ class OpenAIModel(Model):
         for entry in top:
             token_to_logprob.setdefault(entry["token"], entry["logprob"])
 
+        # Strict: only the prefixed form is accepted. Falling back to the
+        # bare form would defeat the static-preflight prefix check (a
+        # collision that's invisible under one form may be valid under the
+        # other), so a missing prefixed token is signalled as NaN and the
+        # Study orchestrator drops the row.
         out = np.empty(len(classes), dtype=np.float64)
         for i, cls in enumerate(classes):
-            key = self.class_prefix + cls
-            # Strict: only the prefixed form is accepted. Falling back to the
-            # bare form would defeat the static-preflight prefix check (a
-            # collision that's invisible under one form may be valid under the
-            # other), so a missing prefixed token is signalled as NaN and the
-            # Study orchestrator drops the row.
-            if key in token_to_logprob:
-                out[i] = token_to_logprob[key]
-            else:
-                out[i] = np.nan
+            out[i] = token_to_logprob.get(self.class_prefix + cls, np.nan)
         return out
 
     def score_classes(self, prompts, classes, per_prompt_seeds=None):
