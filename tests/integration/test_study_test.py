@@ -118,6 +118,52 @@ class TestStudyTest:
         report = s.run_all(metrics=["jsd"], regression_model="level")
         assert report.metadata.get("regression_model") in (None, "level")
 
+    def test_n_zero_freeform_error_includes_example_generations(self):
+        """When every free-form sample fails extraction, the error message
+        must include up to 3 truncated example raw generations to help the
+        user fix their extract_label."""
+        df = pd.DataFrame(
+            {"q": [f"alpha beta gamma delta epsilon {i}" for i in range(2)]}
+        )
+        # Long generation that will be truncated (>200 chars).
+        long_gen = "X" * 250
+        target = _StubModel(
+            cache_id="t",
+            gens_per_call=[
+                [long_gen, long_gen, long_gen],
+                ["short fail", "short fail", "short fail"],
+            ],
+        )
+        para = _StubModel(
+            cache_id="p",
+            gens_per_call=[
+                [f"alpha BeTa gamma delta epsilon {i}"] for i in range(2)
+            ],
+        )
+        s = Study(
+            data=df,
+            perturb_column="q",
+            target_perturbation=lambda x: x.replace("beta", "BETA"),
+            prompt_template="{q}",
+            target_model=target,
+            paraphrase_model=para,
+            # Always returns None — every sample dropped.
+            extract_label=lambda r: None,
+            tolerance=50.0,
+            max_retries=0,
+        )
+        s.generate_baselines()
+        s.run_inference()
+        assert len(s._inference_df) == 0
+        with pytest.raises(CfpromptError) as exc_info:
+            s.test(metrics=["flip_rate"])
+        msg = str(exc_info.value)
+        assert "Example raw generations" in msg
+        # Long generation truncated and given an ellipsis suffix.
+        assert "…" in msg
+        # Short generation surfaced verbatim.
+        assert "short fail" in msg
+
     def test_regression_outcome_class_lookup_raises_cfprompt_error(self):
         """If inference_df has outcome_class values not in self.classes (e.g.
         the user mutated the frame after preflight), _run_regression must

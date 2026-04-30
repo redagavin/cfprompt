@@ -260,6 +260,7 @@ class Study:
 
         self._baselines_df: pd.DataFrame | None = None
         self._inference_df: pd.DataFrame | None = None
+        self._example_failed_generations: list[str] = []
         self._drop_counts: dict[str, int] = _init_drop_counts()
         self._baseline_refused_count: int = 0
         self._baseline_refused_sample_ids: list = []
@@ -484,6 +485,7 @@ def _reset_baselines(self) -> None:
     """
     self._baselines_df = None
     self._inference_df = None
+    self._example_failed_generations = []
     self._drop_counts = _init_drop_counts()
     self._baseline_refused_count = 0
     self._baseline_refused_sample_ids = []
@@ -495,6 +497,7 @@ def _reset_inference(self) -> None:
     Resets only inference-stage drop counts; baselines are preserved.
     """
     self._inference_df = None
+    self._example_failed_generations = []
     for key in ("extraction_returned_none", "extraction_raised", "openai_missing_class"):
         self._drop_counts[key] = 0
 
@@ -531,6 +534,9 @@ def _run_inference(self) -> None:
     n_extraction_raised = 0
     n_extraction_none = 0
     n_openai_missing = 0
+    # Up to 3 example raw generations that failed extraction, captured for
+    # the N=0 error message in free-form mode.
+    example_failed_generations: list[str] = []
 
     def _cache_key_for(prompt: str, sample_id, condition: str) -> str:
         return inference_cache_key(
@@ -630,10 +636,14 @@ def _run_inference(self) -> None:
                         str(e)[:200],
                     )
                     n_extraction_raised += 1
+                    if len(example_failed_generations) < 3:
+                        example_failed_generations.append(g)
                     ok = False
                     break
                 if label is None:
                     n_extraction_none += 1
+                    if len(example_failed_generations) < 3:
+                        example_failed_generations.append(g)
                     ok = False
                     break
                 labels.append(label)
@@ -650,6 +660,7 @@ def _run_inference(self) -> None:
     self._drop_counts["openai_missing_class"] += n_openai_missing
     self._drop_counts["extraction_returned_none"] += n_extraction_none
     self._drop_counts["extraction_raised"] += n_extraction_raised
+    self._example_failed_generations = example_failed_generations
     self._inference_df = pd.DataFrame(rows_out)
 
 
@@ -699,9 +710,21 @@ def _study_test(
     df = self._inference_df
     n = len(df)
     if n < 2:
-        raise CfpromptError(
-            f"Cannot run paired tests with N={n}; check drop_counts: {self._drop_counts}."
-        )
+        msg = f"Cannot run paired tests with N={n}; check drop_counts: {self._drop_counts}."
+        if (
+            n == 0
+            and self.mode == "free_form"
+            and getattr(self, "_example_failed_generations", None)
+        ):
+            samples = []
+            for g in self._example_failed_generations[:3]:
+                truncated = g if len(g) <= 200 else g[:200] + "…"
+                samples.append(repr(truncated))
+            msg += (
+                f" Example raw generations from samples whose extract_label "
+                f"returned None or raised (first 3): {samples}"
+            )
+        raise CfpromptError(msg)
 
     results = []
     labels_orig = df["label_orig"].to_numpy()
@@ -937,6 +960,7 @@ def _study_load(
     s.directional = config["directional"]
     s._baselines_df = payload["baselines_df"]
     s._inference_df = payload["inference_df"]
+    s._example_failed_generations = []
     s._drop_counts = dict(payload.get("drop_counts") or _init_drop_counts())
     s._baseline_refused_count = int(payload.get("baseline_refused_count", 0))
     s._baseline_refused_sample_ids = list(payload.get("baseline_refused_sample_ids", []))
