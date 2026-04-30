@@ -45,7 +45,11 @@ class TestStudyTest:
         )
         rng = np.random.default_rng(0)
         probs_orig = rng.dirichlet([2.0, 2.0], size=20)
-        probs_target = rng.dirichlet([1.0, 4.0], size=20)
+        # Target alphas are far from orig's [2,2] symmetric distribution while
+        # baseline alphas are close to it; this gives JSD(orig,target) >>
+        # JSD(orig,baseline) on average, producing a detectable paired-t
+        # signal at N=20.
+        probs_target = rng.dirichlet([0.5, 8.0], size=20)
         probs_base = rng.dirichlet([2.1, 1.9], size=20)
         calls = []
         for i in range(20):
@@ -82,6 +86,10 @@ class TestStudyTest:
         assert r.p_value_kind == "two-sided"
         assert r.statistic is not None
         assert 0.0 <= r.p_value <= 1.0
+        # The Dirichlet target alphas [1.0, 4.0] differ strongly from baseline
+        # alphas [2.1, 1.9], so JSD(orig,target) should systematically exceed
+        # JSD(orig,baseline) at N=20.
+        assert r.p_value < 0.05
 
     def test_metric_mode_incompatibility_raises_at_test_time(self):
         df = pd.DataFrame({"q": ["alpha beta gamma delta epsilon"]})
