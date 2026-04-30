@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from cfprompt.models.openai import OpenAIModel
+from cfprompt.models.openai import OpenAIModel, _safe_get_error_code
 
 FIX = Path(__file__).parent.parent / "fixtures" / "openai_responses"
 
@@ -13,6 +13,35 @@ FIX = Path(__file__).parent.parent / "fixtures" / "openai_responses"
 def _load(name: str) -> dict:
     with (FIX / name).open() as f:
         return json.load(f)
+
+
+@pytest.mark.integration
+class TestSafeGetErrorCode:
+    def test_dict_body_returns_code(self):
+        e = type("E", (), {"body": {"code": "rate_limit"}})()
+        assert _safe_get_error_code(e) == "rate_limit"
+
+    def test_dict_body_missing_code_returns_none(self):
+        e = type("E", (), {"body": {"message": "oops"}})()
+        assert _safe_get_error_code(e) is None
+
+    def test_object_body_returns_code_attr(self):
+        body = type("B", (), {"code": "context_length"})()
+        e = type("E", (), {"body": body})()
+        assert _safe_get_error_code(e) == "context_length"
+
+    def test_string_body_returns_none(self):
+        # The original lambda crashed on a string body.
+        e = type("E", (), {"body": "raw string"})()
+        assert _safe_get_error_code(e) is None
+
+    def test_none_body_returns_none(self):
+        e = type("E", (), {"body": None})()
+        assert _safe_get_error_code(e) is None
+
+    def test_no_body_attr_returns_none(self):
+        e = ValueError("no body attribute at all")
+        assert _safe_get_error_code(e) is None
 
 
 @pytest.mark.integration

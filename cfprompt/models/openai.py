@@ -26,6 +26,19 @@ from .base import Model, Tokenizer
 _logger = logging.getLogger("cfprompt")
 
 
+def _safe_get_error_code(e: Exception) -> str | None:
+    """Extract an OpenAI error code from a raised exception.
+
+    APIStatusError.body may be a dict, a pydantic-style object with a `code`
+    attribute, None, or any other type. Treat anything we can't safely read
+    as missing rather than crashing the error-logging path.
+    """
+    body = getattr(e, "body", None)
+    if isinstance(body, dict):
+        return body.get("code")
+    return getattr(body, "code", None)
+
+
 @dataclass
 class TiktokenWrapper:
     """Tokenizer Protocol implementation backed by tiktoken."""
@@ -192,7 +205,7 @@ class OpenAIModel(Model):
                     wait,
                 )
                 time.sleep(wait)
-                delay *= 2
+                delay = min(delay * 2, self.backoff_max_seconds)
             except APIStatusError as e:
                 if 500 <= e.status_code < 600 and attempt < self.max_retries:
                     wait = min(delay, self.backoff_max_seconds)
@@ -204,9 +217,9 @@ class OpenAIModel(Model):
                         wait,
                     )
                     time.sleep(wait)
-                    delay *= 2
+                    delay = min(delay * 2, self.backoff_max_seconds)
                     continue
-                err_code = getattr(getattr(e, "body", None) or {}, "get", lambda *_: None)("code")
+                err_code = _safe_get_error_code(e)
                 msg = str(getattr(e, "message", "")) or str(e)
                 _logger.error(
                     "OpenAIModel: %d %s %s",
@@ -215,7 +228,6 @@ class OpenAIModel(Model):
                     msg[:200],
                 )
                 raise
-        raise RuntimeError("OpenAIModel._request_one_generate fell off retry loop")
 
     def generate(self, prompts, per_prompt_seeds=None):
         out: list[str] = []
@@ -279,7 +291,7 @@ class OpenAIModel(Model):
                     wait,
                 )
                 time.sleep(wait)
-                delay *= 2
+                delay = min(delay * 2, self.backoff_max_seconds)
             except APIStatusError as e:
                 if 500 <= e.status_code < 600 and attempt < self.max_retries:
                     wait = min(delay, self.backoff_max_seconds)
@@ -291,14 +303,14 @@ class OpenAIModel(Model):
                         wait,
                     )
                     time.sleep(wait)
-                    delay *= 2
+                    delay = min(delay * 2, self.backoff_max_seconds)
                     continue
                 # 4xx other than rate-limit: sanitize and re-raise.
                 # Note: never log request headers or full body — they may
                 # contain Authorization or PHI. We log only status, error
                 # code (if available), and the first 200 chars of the
                 # message body, after coercing to str.
-                err_code = getattr(getattr(e, "body", None) or {}, "get", lambda *_: None)("code")
+                err_code = _safe_get_error_code(e)
                 msg = str(getattr(e, "message", "")) or str(e)
                 _logger.error(
                     "OpenAIModel: %d %s %s",
@@ -307,8 +319,6 @@ class OpenAIModel(Model):
                     msg[:200],
                 )
                 raise
-        # Unreachable
-        raise RuntimeError("OpenAIModel._request_one fell off retry loop")
 
     def _extract_class_logprobs(self, response: dict, classes: list[str]) -> np.ndarray:
         """Extract per-class logprobs from a chat-completions response.
