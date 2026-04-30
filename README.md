@@ -49,6 +49,8 @@ cfprompt run config.yaml           # execute the study
 `target_perturbation` and `extract_label` `module:function` specs are imported
 and called). Do not run untrusted YAML files.
 
+**Pickle / `.pkl` files (Study.save / DiskCache):** `Study.load(path)` and a `cache_dir` populated by another user are equivalent to executing arbitrary Python on load. Never load a `.pkl` from an untrusted source, and treat `cache_dir` as user-private (do not point it at a directory another user can write to).
+
 ## License
 
 MIT.
