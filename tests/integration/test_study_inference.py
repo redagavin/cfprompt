@@ -251,3 +251,70 @@ class TestStudyRunInference:
         assert len(per_sample) == 10
         assert any("more extract_label exceptions suppressed" in m for m in warn_lines)
         assert s._drop_counts["extraction_raised"] == n_samples
+
+    def test_openai_missing_class_drops_sample(self):
+        """When score_classes returns NaN for any condition (mimicking OpenAI
+        returning logprobs that don't include the requested class), the sample
+        must be dropped and counted under openai_missing_class."""
+        df = pd.DataFrame({"q": ["alpha beta gamma delta"]})
+        # First call returns NaN in target arm
+        calls = [np.array([[0.6, 0.4], [np.nan, np.nan], [0.55, 0.45]])]
+        target = _StubModel(cache_id="tgt", probs_per_call=calls)
+        para = _StubModel(cache_id="p", gens_per_call=[["alpha BETA gamma delta"]])
+        s = Study(
+            data=df,
+            perturb_column="q",
+            target_perturbation=lambda x: x.replace("beta", "BETA"),
+            prompt_template="{q}",
+            target_model=target,
+            paraphrase_model=para,
+            classes=["A", "B"],
+            tolerance=50.0,
+            max_retries=0,
+        )
+        s.generate_baselines()
+        s.run_inference()
+        assert len(s._inference_df) == 0
+        assert s._drop_counts["openai_missing_class"] == 1
+
+    def test_tokenization_failed_drops_sample(self):
+        """When the target_model.tokenizer.encode raises, the sample is
+        dropped and counted under tokenization_failed."""
+
+        class _RaisingTokenizer:
+            def encode(self, t):
+                raise ValueError("tokenizer broke")
+
+            @property
+            def cache_id(self):
+                return "tok:raise"
+
+        class _RaisingModel:
+            cache_id = "tgt:raise"
+            tokenizer = _RaisingTokenizer()
+
+            def score_classes(self, prompts, classes, per_prompt_seeds=None):
+                return np.full((len(prompts), len(classes)), 0.5)
+
+            def generate(self, prompts, per_prompt_seeds=None):
+                return [""] * len(prompts)
+
+            def close(self):
+                pass
+
+        df = pd.DataFrame({"q": ["alpha beta gamma"]})
+        para = _StubModel(cache_id="p", gens_per_call=[["alpha BETA gamma"]])
+        s = Study(
+            data=df,
+            perturb_column="q",
+            target_perturbation=lambda x: x.replace("beta", "BETA"),
+            prompt_template="{q}",
+            target_model=_RaisingModel(),
+            paraphrase_model=para,
+            classes=["A", "B"],
+            tolerance=50.0,
+            max_retries=0,
+        )
+        s.generate_baselines()
+        assert len(s._baselines_df) == 0
+        assert s._drop_counts["tokenization_failed"] == 1
