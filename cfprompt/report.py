@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class TestResult:
+    # Tells pytest not to attempt collecting this dataclass as a test class
+    # (its name starts with "Test").
+    __test__ = False
+
     metric: str
     test: str
     statistic: float | None
