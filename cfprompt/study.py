@@ -537,6 +537,10 @@ def _run_inference(self) -> None:
     # Up to 3 example raw generations that failed extraction, captured for
     # the N=0 error message in free-form mode.
     example_failed_generations: list[str] = []
+    # Throttle extract_label exception logging: first N at WARN, then a
+    # single summary line at end of run.
+    _LOG_FIRST_N_EXCEPTIONS = 10
+    n_exceptions_logged = 0
 
     def _cache_key_for(prompt: str, sample_id, condition: str) -> str:
         return inference_cache_key(
@@ -629,12 +633,14 @@ def _run_inference(self) -> None:
                 try:
                     label = self.extract_label(g)
                 except Exception as e:
-                    _logger.warning(
-                        "sample_id=%r extract_label raised %s: %s",
-                        sample_id,
-                        type(e).__name__,
-                        str(e)[:200],
-                    )
+                    if n_exceptions_logged < _LOG_FIRST_N_EXCEPTIONS:
+                        _logger.warning(
+                            "sample_id=%r extract_label raised %s: %s",
+                            sample_id,
+                            type(e).__name__,
+                            str(e)[:200],
+                        )
+                        n_exceptions_logged += 1
                     n_extraction_raised += 1
                     if len(example_failed_generations) < 3:
                         example_failed_generations.append(g)
@@ -661,6 +667,12 @@ def _run_inference(self) -> None:
     self._drop_counts["extraction_returned_none"] += n_extraction_none
     self._drop_counts["extraction_raised"] += n_extraction_raised
     self._example_failed_generations = example_failed_generations
+    if n_extraction_raised > _LOG_FIRST_N_EXCEPTIONS:
+        _logger.warning(
+            "%d more extract_label exceptions suppressed; total: %d",
+            n_extraction_raised - _LOG_FIRST_N_EXCEPTIONS,
+            n_extraction_raised,
+        )
     self._inference_df = pd.DataFrame(rows_out)
 
 
@@ -995,44 +1007,68 @@ def _study_load(
 
 
 def _study_reextract(self, extract_label) -> None:
+    """Re-run extract_label over the cached free-form generations, updating
+    label_* columns in place.
+
+    Non-destructive: every row of inference_df survives. For samples where
+    the new extractor returns None or raises, the original label_* values
+    are preserved and a WARNING is logged.
+
+    Logging is throttled: the first 10 exceptions log at WARN, then a
+    single end-of-run summary line reports the suppressed count.
+    """
     if self.mode != "free_form":
         raise ConfigError("reextract() is only valid in free-form mode.")
     if self._inference_df is None:
         raise StageNotRunError("reextract requires run_inference() output; load a study first.")
     self.extract_label = extract_label
-    rows = []
     n_none = 0
     n_raised = 0
+    n_exceptions_logged = 0
+    _LOG_FIRST_N = 10
+    rows = []
     for _, row in self._inference_df.iterrows():
-        labels = []
-        ok = True
+        labels: list[str | None] = []
         for cond in ("orig", "target", "base"):
             gen = row[f"generation_{cond}"]
             try:
                 lab = extract_label(gen)
             except Exception as e:
-                _logger.warning(
-                    "reextract: extract_label raised %s on sample_id=%r/%s: %s",
-                    type(e).__name__,
-                    row.get("sample_id", "?"),
-                    cond,
-                    str(e)[:200],
-                )
+                if n_exceptions_logged < _LOG_FIRST_N:
+                    _logger.warning(
+                        "reextract: extract_label raised %s on sample_id=%r/%s: %s",
+                        type(e).__name__,
+                        row.get("sample_id", "?"),
+                        cond,
+                        str(e)[:200],
+                    )
+                    n_exceptions_logged += 1
                 n_raised += 1
-                ok = False
-                break
+                labels.append(None)
+                continue
             if lab is None:
                 n_none += 1
-                ok = False
-                break
+                _logger.warning(
+                    "reextract: extract_label returned None on sample_id=%r/%s; "
+                    "keeping original label.",
+                    row.get("sample_id", "?"),
+                    cond,
+                )
             labels.append(lab)
-        if not ok:
-            continue
         new_row = dict(row)
-        new_row["label_orig"], new_row["label_target"], new_row["label_base"] = labels
+        for cond, lab in zip(("orig", "target", "base"), labels, strict=True):
+            if lab is not None:
+                new_row[f"label_{cond}"] = lab
+            # else: preserve the original label_<cond> from row.
         rows.append(new_row)
     self._drop_counts["extraction_returned_none"] = n_none
     self._drop_counts["extraction_raised"] = n_raised
+    if n_raised > _LOG_FIRST_N:
+        _logger.warning(
+            "reextract: %d more extract_label exceptions suppressed; total: %d",
+            n_raised - _LOG_FIRST_N,
+            n_raised,
+        )
     self._inference_df = pd.DataFrame(rows)
 
 

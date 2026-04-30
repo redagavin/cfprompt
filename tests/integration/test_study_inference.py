@@ -208,3 +208,46 @@ class TestStudyRunInference:
         assert len(s._inference_df) == 0
         assert s._drop_counts["extraction_returned_none"] == 0
         assert s._drop_counts["extraction_raised"] == 1
+
+    def test_run_inference_throttles_extract_label_exception_logging(self, caplog):
+        """When extract_label raises on more than 10 free-form samples, only
+        the first 10 WARN lines emit, then a single end-of-run summary."""
+        import logging
+
+        n_samples = 15
+        df = pd.DataFrame({"q": [f"alpha beta gamma {i}" for i in range(n_samples)]})
+        para = _StubModel(
+            cache_id="para",
+            gens_per_call=[[f"alpha BETA gamma {i}"] for i in range(n_samples)],
+        )
+        target = _StubModel(
+            cache_id="t",
+            gens_per_call=[["g0", "g1", "g2"] for _ in range(n_samples)],
+        )
+
+        def _always_raise(_g):
+            raise ValueError("boom")
+
+        s = Study(
+            data=df,
+            perturb_column="q",
+            target_perturbation=lambda x: x.replace("beta", "BETA"),
+            prompt_template="{q}",
+            target_model=target,
+            paraphrase_model=para,
+            extract_label=_always_raise,
+            tolerance=50.0,
+            max_retries=0,
+        )
+        s.generate_baselines()
+        with caplog.at_level(logging.WARNING, logger="cfprompt"):
+            s.run_inference()
+        warn_lines = [
+            r.getMessage() for r in caplog.records if r.levelno == logging.WARNING
+        ]
+        per_sample = [m for m in warn_lines if "extract_label raised" in m]
+        # Inference loop breaks after first failing condition per sample, so
+        # n_extraction_raised == n_samples == 15. First 10 logged, then summary.
+        assert len(per_sample) == 10
+        assert any("more extract_label exceptions suppressed" in m for m in warn_lines)
+        assert s._drop_counts["extraction_raised"] == n_samples
