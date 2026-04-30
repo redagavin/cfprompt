@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -146,18 +148,58 @@ class TestStudyTest:
         r = report.results[0]
         assert r.metric == "kl"
         assert r.test == "paired_t"
+        assert isinstance(r.statistic, float) and not math.isnan(r.statistic)
+        assert 0.0 <= r.p_value <= 1.0
 
     def test_mi_metric_returns_report(self):
         s = self._classification_study()
         report = s.run_all(metrics=["mi"])
-        assert report.results[0].metric == "mi"
-        assert report.results[0].test == "bootstrap"
+        r = report.results[0]
+        assert r.metric == "mi"
+        assert r.test == "bootstrap"
+        assert r.statistic is not None
+        assert isinstance(r.statistic, float)
+        assert 0.0 <= r.p_value <= 1.0
 
     def test_phi_metric_returns_report(self):
-        s = self._classification_study()
+        # Use a fixture with two-class flips on both axes so the 2x2
+        # contingency table for phi has nonzero marginals (the default
+        # _classification_study fixture's [0.5, 8.0] target alphas
+        # produce all-B target labels, making phi degenerate).
+        df = pd.DataFrame(
+            {"q": [f"alpha beta gamma delta epsilon zeta eta theta {i}" for i in range(20)]}
+        )
+        rng = np.random.default_rng(0)
+        probs_orig = rng.dirichlet([2.0, 2.0], size=20)
+        probs_target = rng.dirichlet([1.0, 4.0], size=20)
+        probs_base = rng.dirichlet([2.1, 1.9], size=20)
+        calls = [np.stack([probs_orig[i], probs_target[i], probs_base[i]]) for i in range(20)]
+        para = _StubModel(
+            cache_id="para",
+            gens_per_call=[
+                [f"alpha BeTa gamma delta epsilon zeta eta theta {i}"] for i in range(20)
+            ],
+        )
+        target = _StubModel(cache_id="tgt", probs_per_call=calls)
+        s = Study(
+            data=df,
+            perturb_column="q",
+            target_perturbation=lambda x: x.replace("beta", "BETA"),
+            prompt_template="{q}",
+            target_model=target,
+            paraphrase_model=para,
+            classes=["A", "B"],
+            tolerance=50.0,
+            max_retries=0,
+            n_bootstrap=200,
+        )
         report = s.run_all(metrics=["phi"])
-        assert report.results[0].metric == "phi"
-        assert report.results[0].test == "bootstrap"
+        r = report.results[0]
+        assert r.metric == "phi"
+        assert r.test == "bootstrap"
+        assert r.statistic is not None
+        assert isinstance(r.statistic, float)
+        assert 0.0 <= r.p_value <= 1.0
 
     def test_multiple_metrics_returns_one_result_each(self):
         s = self._classification_study()
