@@ -83,9 +83,7 @@ class TestBootstrapDiff:
         This guards against silent drift in the resampler.
         """
 
-        def bootstrap_flip_rate_pvalue(
-            gender_flips, benign_flips, n_bootstrap=10000, seed=42
-        ):
+        def bootstrap_flip_rate_pvalue(gender_flips, benign_flips, n_bootstrap=10000, seed=42):
             rng = np.random.RandomState(seed)
             n = len(gender_flips)
             gender_flips = np.asarray(gender_flips, dtype=int)
