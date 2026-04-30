@@ -4,13 +4,29 @@ Marked as @pytest.mark.smoke so default pytest runs skip it. Run explicitly via
 `pytest -m smoke`. Downloads SmolLM2-135M (~270MB) on first run.
 """
 
-from unittest.mock import MagicMock
-
 import pandas as pd
 import pytest
 import torch
 
 from cfprompt.models.hf import HFModel
+
+
+class _SmokeParaphraseModel:
+    """Concrete paraphrase stub - returns canned outputs trimmed to len(prompts).
+
+    Using a real class instead of MagicMock surfaces missing-method bugs
+    (e.g. if Study starts calling para.tokenizer or para.close()).
+    """
+
+    cache_id = "para:smoke"
+    _outputs = [
+        "Sky's color: blue?",
+        "Wetness of water?",
+        "Hot fire, yes/no?",
+    ]
+
+    def generate(self, prompts, per_prompt_seeds=None):
+        return self._outputs[: len(prompts)]
 
 
 @pytest.mark.smoke
@@ -30,13 +46,7 @@ class TestSmolM2Smoke:
                     ]
                 }
             )
-            para = MagicMock()
-            para.cache_id = "para:smoke"
-            para.generate = lambda prompts, per_prompt_seeds=None: [
-                "Sky's color: blue?",
-                "Wetness of water?",
-                "Hot fire, yes/no?",
-            ][: len(prompts)]
+            para = _SmokeParaphraseModel()
             from cfprompt.study import Study
 
             s = Study(
