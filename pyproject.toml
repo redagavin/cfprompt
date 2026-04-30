@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cfprompt"
-version = "0.0.1"
+dynamic = ["version"]
 description = "Counterfactual prompting with adjusted paraphrase baselines"
 readme = "README.md"
 license = "MIT"
@@ -36,6 +36,9 @@ dev = [
 
 [project.scripts]
 cfprompt = "cfprompt.cli.main:app"
+
+[tool.hatch.version]
+path = "cfprompt/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["cfprompt"]
