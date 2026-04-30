@@ -55,7 +55,7 @@ class TestStudySaveLoad:
         assert isinstance(report, Report)
         assert "loaded_target_cache_id" in report.metadata
         assert report.metadata["loaded_target_cache_id"] == "tgt:saved"
-        assert report.metadata["loaded_from_path"].endswith("study.pkl")
+        assert report.metadata["loaded_from_path"] == str(path)
 
     def test_load_no_models_then_run_inference_raises(self, tmp_path: Path):
         s = _build_classification_study()
