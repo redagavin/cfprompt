@@ -113,6 +113,7 @@ def generate_adjusted_paraphrase(
     tokenizer,
     tolerance: float = 0.5,
     max_retries: int = 50,
+    seed: int | None = None,
 ) -> AdjustedParaphraseResult:
     """Iteratively prompt the paraphrase_model to produce a paraphrase whose
     token-edit % is within `tolerance` of `target_edit_pct`.
@@ -120,6 +121,9 @@ def generate_adjusted_paraphrase(
     On full refusal across all attempts, returns AdjustedParaphraseResult with
     paraphrase = `text` (original) and refused=True. The caller is expected
     to flag baseline_refused=True in baselines_df and emit a WARNING.
+
+    The same `seed` is reused across all retry attempts within a single call:
+    paraphrase retries should be deterministic for a given sample.
 
     See spec §5.3 for the algorithm details.
     """
@@ -136,9 +140,11 @@ def generate_adjusted_paraphrase(
         text=text,
     )
 
+    generate_kwargs = {"per_prompt_seeds": [seed]} if seed is not None else {}
+
     current_prompt = initial_prompt
     for attempt_num in range(max_retries + 1):
-        candidate = paraphrase_model.generate([current_prompt])[0].strip()
+        candidate = paraphrase_model.generate([current_prompt], **generate_kwargs)[0].strip()
 
         if is_refusal(candidate):
             _logger.debug(

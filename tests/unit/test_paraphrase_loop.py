@@ -90,6 +90,62 @@ class TestGenerateAdjustedParaphrase:
         assert result.paraphrase == original
         assert result.actual_edit_pct == 0.0
 
+    def test_seed_propagates_to_paraphrase_model(self):
+        """When seed= is passed, paraphrase_model.generate() must receive it
+        in per_prompt_seeds. Same seed reused across retries (deterministic)."""
+        tok = _FakeTokenizer()
+        original = " ".join(f"w{i}" for i in range(10))
+        modified = " ".join(["X"] + [f"w{i}" for i in range(1, 10)])
+
+        class _RecordingModel:
+            def __init__(self, scripted):
+                self._scripted = list(scripted)
+                self.seeds_seen: list = []
+
+            def generate(self, prompts, per_prompt_seeds=None):
+                self.seeds_seen.append(per_prompt_seeds)
+                return [self._scripted.pop(0)]
+
+        # Refusal then success → at least 2 attempts, seed must persist.
+        model = _RecordingModel(["I can't help with that.", modified])
+        generate_adjusted_paraphrase(
+            text=original,
+            target_edit_pct=10.0,
+            paraphrase_model=model,
+            tokenizer=tok,
+            tolerance=0.5,
+            max_retries=5,
+            seed=12345,
+        )
+        assert model.seeds_seen == [[12345], [12345]]
+
+    def test_no_seed_omits_per_prompt_seeds_kwarg(self):
+        """When seed=None (default), generate() is called without per_prompt_seeds."""
+        tok = _FakeTokenizer()
+        original = " ".join(f"w{i}" for i in range(10))
+        modified = " ".join(["X"] + [f"w{i}" for i in range(1, 10)])
+
+        class _RecordingModel:
+            def __init__(self, scripted):
+                self._scripted = list(scripted)
+                self.kwargs_seen: list = []
+
+            def generate(self, prompts, **kwargs):
+                self.kwargs_seen.append(kwargs)
+                return [self._scripted.pop(0)]
+
+        model = _RecordingModel([modified])
+        generate_adjusted_paraphrase(
+            text=original,
+            target_edit_pct=10.0,
+            paraphrase_model=model,
+            tokenizer=tok,
+            tolerance=0.5,
+            max_retries=0,
+        )
+        # No seed passed → no per_prompt_seeds in the call kwargs.
+        assert model.kwargs_seen == [{}]
+
     def test_overshoots_picks_closest_undershoot(self):
         tok = _FakeTokenizer()
         original = " ".join(f"w{i}" for i in range(10))

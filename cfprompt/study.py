@@ -394,6 +394,7 @@ def _generate_baselines(self) -> None:
                 tokenizer=self.target_model.tokenizer,
                 tolerance=self.tolerance,
                 max_retries=self.max_retries,
+                seed=per_sample_seed,
             )
             if self._paraphrase_cache is not None:
                 self._paraphrase_cache.set(key, result)
