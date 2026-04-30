@@ -218,3 +218,102 @@ class TestStudyTest:
         s._inference_df.loc[s._inference_df.index[0], "outcome"] = "Z"
         with pytest.raises(CfpromptError, match=r"outcome_class_column"):
             s.test(metrics=["regression"], regression_model="difference")
+
+
+@pytest.mark.integration
+class TestStudyDirectional:
+    def _directional_study(self):
+        # 30 samples; classes ["A", "B"]
+        df = pd.DataFrame(
+            {
+                "q": [f"alpha beta gamma {i}" for i in range(30)],
+                "outcome": ["A"] * 30,
+                "dir": [1, -1] * 15,
+            }
+        )
+        rng = np.random.default_rng(0)
+        # Construct calls so target probs depend on direction:
+        # For direction=+1, perturbation INCREASES P(A); for -1, DECREASES.
+        calls = []
+        for i in range(30):
+            d = 1.0 if i % 2 == 0 else -1.0
+            p_orig = rng.dirichlet([2.0, 2.0])
+            p_target = np.clip([p_orig[0] + 0.2 * d, p_orig[1] - 0.2 * d], 0.01, 0.99)
+            p_target = p_target / p_target.sum()
+            p_base = rng.dirichlet([2.0, 2.0])
+            calls.append(np.stack([p_orig, p_target, p_base]))
+        target = _StubModel(cache_id="tgt", probs_per_call=calls)
+        para = _StubModel(
+            cache_id="para",
+            gens_per_call=[[f"alpha BeTa gamma {i}"] for i in range(30)],
+        )
+        s = Study(
+            data=df,
+            perturb_column="q",
+            target_perturbation=lambda x: x.replace("beta", "BETA"),
+            prompt_template="{q}",
+            target_model=target,
+            paraphrase_model=para,
+            classes=["A", "B"],
+            direction_column="dir",
+            outcome_class_column="outcome",
+            alternative="greater",
+            tolerance=50.0,
+            max_retries=0,
+        )
+        return s
+
+    def test_difference_regression_recovers_direction(self):
+        s = self._directional_study()
+        report = s.run_all(metrics=["regression"], regression_model="difference")
+        assert len(report.results) == 1
+        r = report.results[0]
+        assert r.test == "ols_t"
+        assert r.statistic > 0  # direction has positive effect
+        assert r.p_value_kind == "one-sided"
+        assert r.extra["regression_model"] == "difference"
+
+    def test_level_regression_recovers_direction(self):
+        s = self._directional_study()
+        report = s.run_all(metrics=["regression"], regression_model="level")
+        assert report.results[0].extra["regression_model"] == "level"
+        assert report.results[0].statistic > 0
+
+    def test_alternative_less_with_positive_signal_high_p(self):
+        df = pd.DataFrame(
+            {
+                "q": [f"alpha beta gamma {i}" for i in range(30)],
+                "outcome": ["A"] * 30,
+                "dir": [1, -1] * 15,
+            }
+        )
+        rng = np.random.default_rng(0)
+        calls = []
+        for i in range(30):
+            d = 1.0 if i % 2 == 0 else -1.0
+            p_orig = rng.dirichlet([2.0, 2.0])
+            p_target = np.clip([p_orig[0] + 0.2 * d, p_orig[1] - 0.2 * d], 0.01, 0.99)
+            p_target = p_target / p_target.sum()
+            p_base = rng.dirichlet([2.0, 2.0])
+            calls.append(np.stack([p_orig, p_target, p_base]))
+        target = _StubModel(cache_id="tgt", probs_per_call=calls)
+        para = _StubModel(
+            cache_id="para",
+            gens_per_call=[[f"alpha BeTa gamma {i}"] for i in range(30)],
+        )
+        s = Study(
+            data=df,
+            perturb_column="q",
+            target_perturbation=lambda x: x.replace("beta", "BETA"),
+            prompt_template="{q}",
+            target_model=target,
+            paraphrase_model=para,
+            classes=["A", "B"],
+            direction_column="dir",
+            outcome_class_column="outcome",
+            alternative="less",
+            tolerance=50.0,
+            max_retries=0,
+        )
+        report = s.run_all(metrics=["regression"])
+        assert report.results[0].p_value > 0.5  # one-sided "less" with positive signal
