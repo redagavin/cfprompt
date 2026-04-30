@@ -63,6 +63,8 @@ class TestStudyRunInference:
         assert "probs_target" in idf.columns
         assert "probs_base" in idf.columns
         np.testing.assert_allclose(idf["probs_orig"].iloc[0], [0.6, 0.4])
+        np.testing.assert_allclose(idf["probs_target"].iloc[0], [0.5, 0.5])
+        np.testing.assert_allclose(idf["probs_base"].iloc[0], [0.55, 0.45])
 
     def test_free_form_extraction_failures(self):
         df = pd.DataFrame({"q": ["one two three four five six"]})
