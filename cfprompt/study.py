@@ -475,7 +475,33 @@ def _generate_baselines(self) -> None:
     self._baselines_df = pd.DataFrame(rows)
 
 
+def _reset_baselines(self) -> None:
+    """Clear cached baselines so generate_baselines() will recompute.
+
+    Also clears the inference frame (which depends on baselines) and
+    resets baseline-stage drop counts. Existing on-disk paraphrase cache
+    entries are kept; regenerate_baselines re-derives them by cache key.
+    """
+    self._baselines_df = None
+    self._inference_df = None
+    self._drop_counts = _init_drop_counts()
+    self._baseline_refused_count = 0
+    self._baseline_refused_sample_ids = []
+
+
+def _reset_inference(self) -> None:
+    """Clear cached inference results so run_inference() will recompute.
+
+    Resets only inference-stage drop counts; baselines are preserved.
+    """
+    self._inference_df = None
+    for key in ("extraction_returned_none", "extraction_raised", "openai_missing_class"):
+        self._drop_counts[key] = 0
+
+
 Study.generate_baselines = _generate_baselines
+Study.reset_baselines = _reset_baselines
+Study.reset_inference = _reset_inference
 Study.baselines_df = property(lambda self: self._baselines_df)
 
 

@@ -91,7 +91,7 @@ class TestStudySaveLoad:
         path = tmp_path / "study.pkl"
         s.save(path)
         loaded = Study.load(path)
-        loaded._inference_df = None
+        loaded.reset_inference()
         with pytest.raises(StageNotRunError, match=r"target_model"):
             loaded.run_inference()
 
@@ -107,7 +107,7 @@ class TestStudySaveLoad:
             paraphrase_model=new_para,
         )
         loaded.test(metrics=["flip_rate"])
-        loaded._inference_df = None
+        loaded.reset_inference()
         with pytest.raises(ConfigError, match=r"cache_id"):
             loaded.run_inference()
 
@@ -123,7 +123,7 @@ class TestStudySaveLoad:
             paraphrase_model=diff_para,
         )
         loaded.test(metrics=["flip_rate"])
-        loaded._baselines_df = None
+        loaded.reset_baselines()
         with pytest.raises(ConfigError, match=r"paraphrase_model"):
             loaded.generate_baselines()
 
@@ -139,8 +139,42 @@ class TestStudySaveLoad:
             paraphrase_model=new_para,
             allow_cache_id_mismatch=True,
         )
-        loaded._inference_df = None
+        loaded.reset_inference()
         loaded.run_inference()
+
+    def test_reset_inference_allows_rerun(self, tmp_path: Path):
+        """reset_inference() must clear the cached frame so a subsequent
+        run_inference() recomputes."""
+        s = _build_classification_study()
+        assert s._inference_df is not None
+        original_len = len(s._inference_df)
+        s.reset_inference()
+        assert s._inference_df is None
+        # _baselines_df survives.
+        assert s._baselines_df is not None
+        assert s._drop_counts["extraction_raised"] == 0
+        assert s._drop_counts["extraction_returned_none"] == 0
+        # Re-run path: needs fresh probs from the model. Build a fresh stub.
+        rng = np.random.default_rng(1)
+        triple = np.stack(
+            [rng.dirichlet([2.0, 2.0]), rng.dirichlet([1.0, 4.0]), rng.dirichlet([2.1, 1.9])]
+        )
+        s.target_model._probs = [triple] * original_len
+        s.run_inference()
+        assert s._inference_df is not None
+        assert len(s._inference_df) == original_len
+
+    def test_reset_baselines_clears_inference_too(self):
+        """reset_baselines() must clear both baselines and inference, since
+        inference depends on baselines."""
+        s = _build_classification_study()
+        assert s._baselines_df is not None
+        assert s._inference_df is not None
+        s.reset_baselines()
+        assert s._baselines_df is None
+        assert s._inference_df is None
+        assert s._baseline_refused_count == 0
+        assert s._baseline_refused_sample_ids == []
 
     def test_reextract_recomputes_labels_without_target_model(self, tmp_path: Path):
         df = pd.DataFrame({"q": [f"alpha beta gamma {i}" for i in range(3)]})
