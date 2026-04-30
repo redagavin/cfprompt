@@ -50,8 +50,7 @@ def run_command(
 ) -> int:
     if log_level.upper() not in _VALID_LOG_LEVELS:
         typer.echo(
-            f"unknown log level: {log_level!r}; expected one of "
-            f"{sorted(_VALID_LOG_LEVELS)}",
+            f"unknown log level: {log_level!r}; expected one of {sorted(_VALID_LOG_LEVELS)}",
             err=True,
         )
         return 1
@@ -74,9 +73,7 @@ def run_command(
         except (ImportError, AttributeError) as e:
             typer.echo(f"callable resolution failed: {e}", err=True)
             return 1
-        typer.echo(
-            f"OK: {config_path} parses, validates, and callables resolve (dry-run)."
-        )
+        typer.echo(f"OK: {config_path} parses, validates, and callables resolve (dry-run).")
         return 0
 
     target_perturbation = resolve_callable(cfg.target_perturbation)

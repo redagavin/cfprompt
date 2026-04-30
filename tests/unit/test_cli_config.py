@@ -54,6 +54,12 @@ class TestStudyConfig:
         with pytest.raises(yaml.YAMLError):
             load_yaml(bad)
 
+    def test_load_yaml_rejects_non_mapping(self, tmp_path):
+        bad = tmp_path / "list.yaml"
+        bad.write_text("- item1\n- item2\n")
+        with pytest.raises(yaml.YAMLError, match="top-level YAML mapping"):
+            load_yaml(bad)
+
     def test_api_key_in_model_config_rejected(self):
         d = self._yaml(
             target_model={

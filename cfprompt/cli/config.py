@@ -8,7 +8,6 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
 _BLOCKED_MODEL_KWARGS = frozenset({"api_key", "secret"})
 
 
@@ -83,5 +82,8 @@ class StudyConfig(BaseModel):
 
 def load_yaml(path: Path | str) -> dict[str, Any]:
     """Load a YAML file via yaml.safe_load (rejects !!python/* tags)."""
-    with open(path) as f:
-        return yaml.safe_load(f)
+    with open(path, encoding="utf-8") as f:
+        result = yaml.safe_load(f)
+    if not isinstance(result, dict):
+        raise yaml.YAMLError(f"expected a top-level YAML mapping; got {type(result).__name__}")
+    return result

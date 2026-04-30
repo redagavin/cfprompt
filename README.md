@@ -43,6 +43,12 @@ cfprompt validate config.yaml      # schema check
 cfprompt run config.yaml           # execute the study
 ```
 
+## Security
+
+`cfprompt run` executes Python code referenced by the config (the
+`target_perturbation` and `extract_label` `module:function` specs are imported
+and called). Do not run untrusted YAML files.
+
 ## License
 
 MIT.

@@ -46,7 +46,11 @@ def run(
     dry_run: bool = typer.Option(False, "--dry-run"),
     log_level: str = typer.Option("INFO", "--log-level"),
 ) -> None:
-    """Execute a study from a YAML config."""
+    """Execute a study from a YAML config.
+
+    SECURITY: cfprompt run executes Python code referenced by the config;
+    do not run untrusted YAML files.
+    """
     from .run import run_command
 
     raise typer.Exit(

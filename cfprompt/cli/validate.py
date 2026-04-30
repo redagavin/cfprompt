@@ -34,18 +34,14 @@ def validate_command(
         try:
             resolve_callable(cfg.target_perturbation)
         except (ImportError, AttributeError, ValueError) as e:
-            typer.echo(
-                f"target_perturbation resolution failed: {e}", err=True
-            )
+            typer.echo(f"target_perturbation resolution failed: {e}", err=True)
             return 1
         typer.echo(f"  target_perturbation = {cfg.target_perturbation} (resolved)")
         if cfg.extract_label:
             try:
                 resolve_callable(cfg.extract_label)
             except (ImportError, AttributeError, ValueError) as e:
-                typer.echo(
-                    f"extract_label resolution failed: {e}", err=True
-                )
+                typer.echo(f"extract_label resolution failed: {e}", err=True)
                 return 1
             typer.echo(f"  extract_label = {cfg.extract_label} (resolved)")
     return 0

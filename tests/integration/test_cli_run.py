@@ -46,8 +46,6 @@ class TestCfpromptRun:
     def test_invalid_log_level_exits_1(self, tmp_path: Path):
         cfg = tmp_path / "config.yaml"
         cfg.write_text(_classification_yaml_text())
-        result = runner.invoke(
-            app, ["run", str(cfg), "--dry-run", "--log-level", "FOO"]
-        )
+        result = runner.invoke(app, ["run", str(cfg), "--dry-run", "--log-level", "FOO"])
         assert result.exit_code == 1
         assert "unknown log level" in result.output
