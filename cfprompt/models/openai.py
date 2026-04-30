@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import time
@@ -81,7 +82,6 @@ class OpenAIModel(Model):
         temperature: float = 0.0,
         top_p: float = 1.0,
         max_completion_tokens: int = 512,
-        max_concurrent: int = 8,
         timeout: float = 60.0,
         max_retries: int = 10,
         backoff_max_seconds: float = 60.0,
@@ -91,7 +91,6 @@ class OpenAIModel(Model):
         self.temperature = temperature
         self.top_p = top_p
         self.max_completion_tokens = max_completion_tokens
-        self.max_concurrent = max_concurrent
         self.timeout = timeout
         self.max_retries = max_retries
         self.backoff_max_seconds = backoff_max_seconds
@@ -105,6 +104,14 @@ class OpenAIModel(Model):
         # tiktoken encoding is resolved lazily; AutoTokenizer-style mapping
         # from model name to encoding is in `_resolve_encoding`.
         self._tokenizer_wrapper = TiktokenWrapper(self._resolve_encoding(name))
+
+        # Track every system_fingerprint we observe across all requests on
+        # this instance. A new value (different from the warmup-resolved
+        # one) indicates the backend rolled to a new model snapshot mid-run,
+        # which can change outputs and invalidate cache reuse. Warn once
+        # per new fingerprint.
+        self._observed_fingerprints: set[str] = set()
+        self._closed: bool = False
 
         # Warm-up resolves system_fingerprint (or sets a per-instance UUID
         # on offline / missing-fp).
@@ -122,6 +129,22 @@ class OpenAIModel(Model):
 
         if self._system_fingerprint in (None, ""):
             self._system_fingerprint = f"unknown-{uuid.uuid4().hex}"
+
+    def _record_fingerprint(self, fp: str | None) -> None:
+        """Compare a response's system_fingerprint against the warmup-resolved
+        one and warn (once per new fingerprint) on drift."""
+        if not fp:
+            return
+        if fp == self._system_fingerprint:
+            return
+        if fp in self._observed_fingerprints:
+            return
+        self._observed_fingerprints.add(fp)
+        _logger.warning(
+            "system_fingerprint drift: observed %r, init resolved %r",
+            fp,
+            self._system_fingerprint,
+        )
 
     @staticmethod
     def _resolve_encoding(name: str) -> str:
@@ -166,14 +189,34 @@ class OpenAIModel(Model):
         )
 
     def close(self) -> None:
-        # OpenAI SDK clients are httpx-backed; allow GC to handle them.
-        pass
+        """Close the underlying OpenAI client (httpx connection pool) and
+        block subsequent requests. Idempotent."""
+        if self._closed:
+            return
+        self._closed = True
+        client = getattr(self, "_client", None)
+        if client is not None:
+            with contextlib.suppress(Exception):
+                client.close()
+            self._client = None
+
+    def _get_client(self) -> "OpenAI":
+        """Return a process-lifetime OpenAI client. Lazy so warmup paths and
+        tests that don't actually call create() don't open a connection
+        pool."""
+        if self._closed:
+            raise RuntimeError("model closed")
+        client = getattr(self, "_client", None)
+        if client is None:
+            client = OpenAI(api_key=self._api_key, timeout=self.timeout)
+            self._client = client
+        return client
 
     def _request_one_generate(self, prompt: str, seed: int | None) -> dict:
         """Issue one free-form generation request. Same retry policy as
         _request_one but uses max_completion_tokens for output length and
         does NOT request logprobs."""
-        client = OpenAI(api_key=self._api_key, timeout=self.timeout)
+        client = self._get_client()
         delay = 1.0
         for attempt in range(self.max_retries + 1):
             try:
@@ -187,6 +230,7 @@ class OpenAIModel(Model):
                 if seed is not None:
                     kwargs["seed"] = seed
                 resp = client.chat.completions.create(**kwargs)
+                self._record_fingerprint(getattr(resp, "system_fingerprint", None))
                 return resp.model_dump()
             except (RateLimitError, APIConnectionError, APITimeoutError) as e:
                 if attempt == self.max_retries:
@@ -253,7 +297,7 @@ class OpenAIModel(Model):
         Implements HTTP retry policy (429 / 5xx / timeout / network errors)
         with exponential backoff capped at backoff_max_seconds.
         """
-        client = OpenAI(api_key=self._api_key, timeout=self.timeout)
+        client = self._get_client()
         delay = 1.0
         for attempt in range(self.max_retries + 1):
             try:
@@ -273,6 +317,7 @@ class OpenAIModel(Model):
                 if seed is not None:
                     kwargs["seed"] = seed
                 resp = client.chat.completions.create(**kwargs)
+                self._record_fingerprint(getattr(resp, "system_fingerprint", None))
                 return resp.model_dump()
             except (RateLimitError, APIConnectionError, APITimeoutError) as e:
                 if attempt == self.max_retries:

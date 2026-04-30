@@ -169,3 +169,168 @@ class TestOpenAIModelInit:
         monkeypatch.setattr(omod, "OpenAI", FakeClient)
         m = OpenAIModel(name="bogus-model", api_key="fake-key")
         assert "fp=unknown-" in m.cache_id
+
+    def test_max_concurrent_kwarg_rejected(self, monkeypatch):
+        """max_concurrent was documented as v2 future work and never used.
+        Removing it should raise TypeError if any caller still passes it."""
+        from cfprompt.models import openai as omod
+
+        def fake_warmup(self):
+            self._system_fingerprint = "fp_x"
+
+        monkeypatch.setattr(omod.OpenAIModel, "_warmup", fake_warmup)
+        with pytest.raises(TypeError):
+            OpenAIModel(name="gpt-4.1", api_key="fake", max_concurrent=4)
+
+
+@pytest.mark.integration
+class TestOpenAIFingerprintDrift:
+    @staticmethod
+    def _patch(monkeypatch, fingerprints: list[str]):
+        """Build an OpenAIModel whose chat.completions.create yields the
+        given fingerprints in order."""
+        from cfprompt.models import openai as omod
+
+        # Warmup uses the OpenAI client too; resolve it to fingerprints[0].
+        i = {"n": 0}
+
+        class FakeCompletions:
+            def create(self_inner, **kwargs):
+                idx = i["n"]
+                i["n"] += 1
+                fp = fingerprints[min(idx, len(fingerprints) - 1)]
+
+                class _Resp:
+                    system_fingerprint = fp
+
+                    def model_dump(self_resp):
+                        return {
+                            "system_fingerprint": fp,
+                            "choices": [
+                                {
+                                    "message": {"content": "ok"},
+                                    "logprobs": {
+                                        "content": [
+                                            {
+                                                "top_logprobs": [
+                                                    {"token": " A", "logprob": -0.1},
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                }
+                            ],
+                        }
+
+                return _Resp()
+
+        class FakeChat:
+            completions = FakeCompletions()
+
+        class FakeClient:
+            chat = FakeChat()
+
+            def __init__(self_inner, **kwargs):
+                pass
+
+            def close(self_inner):
+                pass
+
+        monkeypatch.setattr(omod, "OpenAI", FakeClient)
+        return OpenAIModel(name="gpt-4.1", api_key="fake-key")
+
+    def test_drift_warns_once_per_new_fingerprint(self, monkeypatch, caplog):
+        # warmup -> fp_a; then 3 score_classes calls returning fp_b, fp_b, fp_c.
+        m = self._patch(monkeypatch, ["fp_a", "fp_b", "fp_b", "fp_c"])
+        with caplog.at_level("WARNING", logger="cfprompt"):
+            m.score_classes(["q"], ["A"])  # observes fp_b — warn
+            m.score_classes(["q"], ["A"])  # observes fp_b again — silent
+            m.score_classes(["q"], ["A"])  # observes fp_c — warn
+        drift_msgs = [r for r in caplog.records if "system_fingerprint drift" in r.message]
+        assert len(drift_msgs) == 2
+        assert "fp_b" in drift_msgs[0].message
+        assert "fp_c" in drift_msgs[1].message
+
+    def test_no_drift_no_warning(self, monkeypatch, caplog):
+        m = self._patch(monkeypatch, ["fp_a", "fp_a"])
+        with caplog.at_level("WARNING", logger="cfprompt"):
+            m.score_classes(["q"], ["A"])
+        drift_msgs = [r for r in caplog.records if "system_fingerprint drift" in r.message]
+        assert drift_msgs == []
+
+
+@pytest.mark.integration
+class TestOpenAIClose:
+    @staticmethod
+    def _make(monkeypatch):
+        from cfprompt.models import openai as omod
+
+        closed = {"called": 0}
+
+        class FakeCompletions:
+            def create(self_inner, **kwargs):
+                class _Resp:
+                    system_fingerprint = "fp_x"
+
+                    def model_dump(self_resp):
+                        return {
+                            "system_fingerprint": "fp_x",
+                            "choices": [
+                                {
+                                    "message": {"content": "ok"},
+                                    "logprobs": {
+                                        "content": [
+                                            {
+                                                "top_logprobs": [
+                                                    {"token": " A", "logprob": -0.1},
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                }
+                            ],
+                        }
+
+                return _Resp()
+
+        class FakeChat:
+            completions = FakeCompletions()
+
+        class FakeClient:
+            chat = FakeChat()
+
+            def __init__(self_inner, **kwargs):
+                pass
+
+            def close(self_inner):
+                closed["called"] += 1
+
+        monkeypatch.setattr(omod, "OpenAI", FakeClient)
+        m = OpenAIModel(name="gpt-4.1", api_key="fake-key")
+        return m, closed
+
+    def test_close_idempotent(self, monkeypatch):
+        m, closed = self._make(monkeypatch)
+        # Trigger client creation by issuing one request.
+        m.score_classes(["q"], ["A"])
+        m.close()
+        m.close()  # second call is a no-op
+        assert closed["called"] == 1
+
+    def test_request_after_close_raises(self, monkeypatch):
+        m, _ = self._make(monkeypatch)
+        m.score_classes(["q"], ["A"])
+        m.close()
+        with pytest.raises(RuntimeError, match="model closed"):
+            m.score_classes(["q"], ["A"])
+        with pytest.raises(RuntimeError, match="model closed"):
+            m.generate(["q"])
+
+    def test_close_without_request_is_safe(self, monkeypatch):
+        # The cached client is created lazily on the first scoring/generate
+        # request. Without one, close() is a pure flag flip.
+        m, closed = self._make(monkeypatch)
+        m.close()
+        assert closed["called"] == 0
+        with pytest.raises(RuntimeError, match="model closed"):
+            m.score_classes(["q"], ["A"])
