@@ -92,6 +92,10 @@ def bootstrap_diff(
     See spec §5.5 for the formula:
         p_value = min(1.0, 2.0 * min(P(diff <= 0), P(diff >= 0)))
     matching scripts/compute_medqa_flip_rate_bootstrap.py.
+
+    n_bootstrap default is 1000 to keep unit tests fast. The paper used
+    n_bootstrap=10000; production runs should pass n_bootstrap=10000 or
+    higher (e.g., via Study(n_bootstrap=10000)) to match published p-values.
     """
     labels_orig = np.asarray(labels_orig)
     labels_target = np.asarray(labels_target)
@@ -164,6 +168,14 @@ def bootstrap_diff(
         )
 
     diffs_arr = np.asarray(diffs, dtype=np.float64)
+    # Two-sided p-value formula matches scripts/compute_medqa_flip_rate_bootstrap.py
+    # exactly: p = min(1, 2 * min(P(diff <= 0), P(diff >= 0))). Notes:
+    #   - The closed-interval comparisons (`<= 0` and `>= 0`) double-count
+    #     resamples whose diff is exactly 0; this yields a slightly
+    #     conservative p-value and matches the reference implementation.
+    #   - When all resampled diffs are equal (zero variance), p_le = p_ge = 1
+    #     and the formula would give p=2; the np.allclose guard below catches
+    #     that degenerate case and returns p=1 with degenerate=True.
     p_le = float(np.mean(diffs_arr <= 0))
     p_ge = float(np.mean(diffs_arr >= 0))
     p_value = min(1.0, 2.0 * min(p_le, p_ge))
