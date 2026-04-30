@@ -7,6 +7,13 @@ from cfprompt.stats import paired_t
 
 @pytest.mark.unit
 class TestPairedT:
+    # Float subtraction (target - baseline) yields diffs that differ at the
+    # 1e-17 level, so std_diff bypasses the degenerate=0 guard and scipy's
+    # ttest_rel emits a precision-loss warning. The test only checks the
+    # returned TestResult shape, so the noise is irrelevant.
+    @pytest.mark.filterwarnings(
+        "ignore:Precision loss occurred in moment calculation:RuntimeWarning"
+    )
     def test_returns_test_result(self):
         target = np.array([0.5, 0.6, 0.7])
         baseline = np.array([0.1, 0.2, 0.3])
