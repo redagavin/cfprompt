@@ -26,11 +26,16 @@ def validate(
 def init(
     directory: Path = typer.Argument(Path("."), help="Where to scaffold the starter dir"),
     mode: str = typer.Option("classification", help="classification | freeform"),
+    directional: bool = typer.Option(
+        False,
+        "--directional",
+        help="Include directional regression fields in the scaffold",
+    ),
 ) -> None:
     """Scaffold a starter directory."""
     from .init import init_command
 
-    raise typer.Exit(code=init_command(directory, mode=mode))
+    raise typer.Exit(code=init_command(directory, mode=mode, directional=directional))
 
 
 @app.command()

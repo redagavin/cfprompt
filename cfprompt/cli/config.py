@@ -9,10 +9,23 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+_BLOCKED_MODEL_KWARGS = frozenset({"api_key", "secret"})
+
+
 class ModelConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     type: str
+
+    @model_validator(mode="after")
+    def _block_secrets(self) -> ModelConfig:
+        leaked = set(self.model_extra or {}) & _BLOCKED_MODEL_KWARGS
+        if leaked:
+            raise ValueError(
+                f"model config must not contain secret kwargs {sorted(leaked)}; "
+                f"use OPENAI_API_KEY env var instead"
+            )
+        return self
 
 
 class StudyConfig(BaseModel):

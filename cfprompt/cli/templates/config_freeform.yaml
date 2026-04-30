@@ -9,7 +9,8 @@ prompt_template: |
 
 target_model:
   type: HFModel
-  name_or_path: meta-llama/Llama-3.2-1B
+  # Replace with the model you actually want; this default is open and small for the scaffold.
+  name_or_path: HuggingFaceTB/SmolLM2-135M
 
 paraphrase_model:
   type: OpenAIModel

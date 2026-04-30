@@ -53,3 +53,60 @@ class TestStudyConfig:
         bad.write_text('!!python/object/apply:os.system ["echo pwned"]')
         with pytest.raises(yaml.YAMLError):
             load_yaml(bad)
+
+    def test_api_key_in_model_config_rejected(self):
+        d = self._yaml(
+            target_model={
+                "type": "OpenAIModel",
+                "name": "gpt-4.1",
+                "api_key": "sk-leaked",
+            }
+        )
+        with pytest.raises(ValidationError, match="secret kwargs"):
+            StudyConfig.model_validate(d)
+
+    def test_secret_kwarg_in_model_config_rejected(self):
+        d = self._yaml(
+            paraphrase_model={
+                "type": "OpenAIModel",
+                "name": "gpt-4.1",
+                "secret": "hunter2",
+            }
+        )
+        with pytest.raises(ValidationError, match="secret kwargs"):
+            StudyConfig.model_validate(d)
+
+
+@pytest.mark.unit
+class TestResolveCallable:
+    def test_resolves_simple_module_attr(self):
+        from cfprompt.cli.imports import resolve_callable
+
+        assert resolve_callable("os.path:join") is __import__("os").path.join
+
+    def test_resolves_dotted_attribute_path(self):
+        from collections import OrderedDict
+
+        from cfprompt.cli.imports import resolve_callable
+
+        resolved = resolve_callable("collections:OrderedDict.fromkeys")
+        assert resolved == OrderedDict.fromkeys
+        assert resolved(["a", "b"]) == OrderedDict.fromkeys(["a", "b"])
+
+    def test_missing_colon_raises(self):
+        from cfprompt.cli.imports import resolve_callable
+
+        with pytest.raises(ValueError, match="module:function"):
+            resolve_callable("os.path.join")
+
+    def test_unknown_module_raises_import_error(self):
+        from cfprompt.cli.imports import resolve_callable
+
+        with pytest.raises(ImportError):
+            resolve_callable("nonexistent_module_xyz:fn")
+
+    def test_unknown_attribute_raises_attribute_error(self):
+        from cfprompt.cli.imports import resolve_callable
+
+        with pytest.raises(AttributeError):
+            resolve_callable("os.path:nonexistent_function_xyz")
