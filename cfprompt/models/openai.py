@@ -243,7 +243,11 @@ class OpenAIModel(Model):
                     "temperature": self.temperature,
                     "top_p": self.top_p,
                     "logprobs": True,
-                    "top_logprobs": min(20, len(classes)),
+                    # Always request the maximum (20) so low-prior classes are
+                    # still scored when the model emits unrelated higher-prob
+                    # tokens. Capping at len(classes) silently drops valid
+                    # classes that fall below the kth most-likely token.
+                    "top_logprobs": 20,
                 }
                 if seed is not None:
                     kwargs["seed"] = seed
@@ -316,12 +320,13 @@ class OpenAIModel(Model):
         out = np.empty(len(classes), dtype=np.float64)
         for i, cls in enumerate(classes):
             key = self.class_prefix + cls
-            # Tolerate either the prefixed form or the bare form (some models
-            # emit both depending on prompt structure).
+            # Strict: only the prefixed form is accepted. Falling back to the
+            # bare form would defeat the static-preflight prefix check (a
+            # collision that's invisible under one form may be valid under the
+            # other), so a missing prefixed token is signalled as NaN and the
+            # Study orchestrator drops the row.
             if key in token_to_logprob:
                 out[i] = token_to_logprob[key]
-            elif cls in token_to_logprob:
-                out[i] = token_to_logprob[cls]
             else:
                 out[i] = np.nan
         return out

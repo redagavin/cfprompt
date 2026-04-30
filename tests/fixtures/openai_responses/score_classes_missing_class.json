@@ -6,16 +6,16 @@
   "choices": [
     {
       "index": 0,
-      "message": {"role": "assistant", "content": "Sure"},
+      "message": {"role": "assistant", "content": " Sure"},
       "finish_reason": "stop",
       "logprobs": {
         "content": [
           {
-            "token": "Sure",
+            "token": " Sure",
             "logprob": -0.05,
             "top_logprobs": [
-              {"token": "Sure", "logprob": -0.05},
-              {"token": "Yes", "logprob": -2.0}
+              {"token": " Sure", "logprob": -0.05},
+              {"token": " Yes", "logprob": -2.0}
             ]
           }
         ]

@@ -6,18 +6,18 @@
   "choices": [
     {
       "index": 0,
-      "message": {"role": "assistant", "content": "A"},
+      "message": {"role": "assistant", "content": " A"},
       "finish_reason": "stop",
       "logprobs": {
         "content": [
           {
-            "token": "A",
+            "token": " A",
             "logprob": -0.1,
             "top_logprobs": [
-              {"token": "A", "logprob": -0.1},
-              {"token": "B", "logprob": -2.3},
-              {"token": "C", "logprob": -3.0},
-              {"token": "D", "logprob": -4.2}
+              {"token": " A", "logprob": -0.1},
+              {"token": " B", "logprob": -2.3},
+              {"token": " C", "logprob": -3.0},
+              {"token": " D", "logprob": -4.2}
             ]
           }
         ]

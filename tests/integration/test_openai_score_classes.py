@@ -66,3 +66,56 @@ class TestOpenAIScoreClasses:
         probs1 = m.score_classes(["Q?"], ["A", "B", "C", "D"])
         probs2 = m.score_classes(["Q?"], ["D", "C", "B", "A"])
         np.testing.assert_allclose(probs1, probs2[:, ::-1], atol=1e-6)
+
+    def test_low_prior_classes_still_scored(self, monkeypatch):
+        """Even when len(classes)=2, the API should be asked for 20
+        top_logprobs so that low-prior classes (buried below unrelated
+        higher-probability tokens) still appear in the response."""
+        m = _make_model(monkeypatch)
+        canned = _load("score_classes_low_prior.json")
+
+        captured: dict = {}
+
+        def fake_create(self, prompt, classes, seed):
+            captured["classes_len"] = len(classes)
+            return canned
+
+        monkeypatch.setattr(type(m), "_request_one", fake_create)
+        probs = m.score_classes(["Q?"], ["Yes", "No"])
+        assert probs.shape == (1, 2)
+        # Both " Yes" and " No" appear (positions 18 and 19) only because the
+        # request asked for 20 top_logprobs. With top_logprobs=2, neither
+        # would be in the response and the row would be NaN.
+        assert not np.isnan(probs[0]).any()
+        np.testing.assert_allclose(probs[0].sum(), 1.0, atol=1e-6)
+
+    def test_top_logprobs_request_is_always_20(self, monkeypatch):
+        """Direct verification that _request_one passes top_logprobs=20
+        regardless of len(classes)."""
+        m = _make_model(monkeypatch)
+        captured: dict = {}
+
+        class FakeCompletions:
+            def create(self_inner, **kwargs):
+                captured.update(kwargs)
+
+                class _Resp:
+                    def model_dump(self_resp):
+                        return {"choices": [{"logprobs": {"content": []}}]}
+
+                return _Resp()
+
+        class FakeChat:
+            completions = FakeCompletions()
+
+        class FakeClient:
+            chat = FakeChat()
+
+            def __init__(self_inner, **kwargs):
+                pass
+
+        from cfprompt.models import openai as omod
+
+        monkeypatch.setattr(omod, "OpenAI", FakeClient)
+        m._request_one("p", ["A", "B"], seed=None)
+        assert captured["top_logprobs"] == 20
