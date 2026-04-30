@@ -142,6 +142,29 @@ class TestStudySaveLoad:
         loaded.reset_inference()
         loaded.run_inference()
 
+    def test_run_inference_validates_cache_id_when_baselines_preloaded(
+        self, tmp_path: Path
+    ):
+        """When baselines are already cached and run_inference is called
+        with a cache_id mismatch, the validation must still fire instead of
+        silently using the loaded baselines."""
+        s = _build_classification_study()
+        path = tmp_path / "study.pkl"
+        s.save(path)
+        new_target = _StubModel(cache_id="tgt:DIFFERENT")
+        new_para = _StubModel(cache_id="para:saved")  # match para; mismatch tgt
+        loaded = Study.load(
+            path,
+            target_model=new_target,
+            paraphrase_model=new_para,
+        )
+        loaded.reset_inference()
+        # baselines_df survives reset_inference; run_inference must still
+        # surface the target cache_id mismatch.
+        assert loaded._baselines_df is not None
+        with pytest.raises(ConfigError, match=r"cache_id"):
+            loaded.run_inference()
+
     def test_freeform_load_without_extract_label_then_run_inference_raises(
         self, tmp_path: Path
     ):

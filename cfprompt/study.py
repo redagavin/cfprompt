@@ -517,9 +517,12 @@ def _run_inference(self) -> None:
             "Free-form study loaded without extract_label; re-supply "
             "extract_label= to Study.load() or pass it via reextract()."
         )
-    self._check_cache_id_match("run_inference")
     if self._baselines_df is None:
+        # generate_baselines runs the cache_id check itself; avoid a
+        # duplicate call here.
         self.generate_baselines()
+    else:
+        self._check_cache_id_match("run_inference")
     if len(self._baselines_df) == 0:
         self._inference_df = pd.DataFrame()
         return
