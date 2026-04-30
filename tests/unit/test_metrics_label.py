@@ -38,6 +38,26 @@ class TestMutualInformation:
         v = mutual_information(a, b)
         assert v == pytest.approx(0.0, abs=1e-10)
 
+    def test_mixed_dtype_labels_do_not_crash(self):
+        """Regression: int vs str labels would KeyError on marginal lookup
+        because np.unique(zip(...)) coerces to a 2D string array (R#4)."""
+        a = np.array([0, 1])
+        b = np.array(["A", "B"])
+        v = mutual_information(a, b)
+        # Two samples, perfect 1:1 mapping → MI = log 2.
+        assert v == pytest.approx(np.log(2), abs=1e-6)
+
+    def test_shape_mismatch_raises(self):
+        a = np.array([0, 1, 0])
+        b = np.array([0, 1])
+        with pytest.raises(CfpromptError, match="shape mismatch"):
+            mutual_information(a, b)
+
+    def test_empty_input_returns_zero(self):
+        a = np.array([], dtype=int)
+        b = np.array([], dtype=int)
+        assert mutual_information(a, b) == 0.0
+
 
 @pytest.mark.unit
 class TestPhi:

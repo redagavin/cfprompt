@@ -1,4 +1,5 @@
 """Aggregate label-based metrics: flip rate, mutual information, phi."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -11,9 +12,7 @@ def flip_rate(labels_orig: np.ndarray, labels_pert: np.ndarray) -> float:
     labels_orig = np.asarray(labels_orig)
     labels_pert = np.asarray(labels_pert)
     if labels_orig.shape != labels_pert.shape:
-        raise CfpromptError(
-            f"flip_rate: shape mismatch {labels_orig.shape} vs {labels_pert.shape}"
-        )
+        raise CfpromptError(f"flip_rate: shape mismatch {labels_orig.shape} vs {labels_pert.shape}")
     if len(labels_orig) == 0:
         return 0.0
     return float((labels_orig != labels_pert).mean())
@@ -24,29 +23,37 @@ def mutual_information(labels_orig: np.ndarray, labels_pert: np.ndarray) -> floa
 
     Computes MI on the empirical joint distribution of (orig, pert) labels.
     Non-negative. Symmetric. Returns 0 when labels are independent.
+
+    Labels are coerced to ``str`` at function entry so mixed-dtype inputs
+    (e.g., orig=int and pert=str) hash into a single common space — without
+    coercion ``np.unique(list(zip(...)))`` produces a 2D string array whose
+    keys do not match the per-array ``np.unique`` keys, raising KeyError on
+    the marginal lookup.
     """
     labels_orig = np.asarray(labels_orig)
     labels_pert = np.asarray(labels_pert)
     if labels_orig.shape != labels_pert.shape:
         raise CfpromptError(
-            f"mutual_information: shape mismatch {labels_orig.shape} vs "
-            f"{labels_pert.shape}"
+            f"mutual_information: shape mismatch {labels_orig.shape} vs {labels_pert.shape}"
         )
     n = len(labels_orig)
     if n == 0:
         return 0.0
 
+    orig_str = [str(x) for x in labels_orig.tolist()]
+    pert_str = [str(x) for x in labels_pert.tolist()]
+
     # Build joint table.
     pair_keys, pair_counts = np.unique(
-        list(zip(labels_orig.tolist(), labels_pert.tolist(), strict=True)),
+        list(zip(orig_str, pert_str, strict=True)),
         axis=0,
         return_counts=True,
     )
     p_xy = pair_counts / n
 
-    # Marginals.
-    a_keys, a_counts = np.unique(labels_orig, return_counts=True)
-    b_keys, b_counts = np.unique(labels_pert, return_counts=True)
+    # Marginals on the same coerced string keys.
+    a_keys, a_counts = np.unique(orig_str, return_counts=True)
+    b_keys, b_counts = np.unique(pert_str, return_counts=True)
     p_x = {k: c / n for k, c in zip(a_keys, a_counts, strict=True)}
     p_y = {k: c / n for k, c in zip(b_keys, b_counts, strict=True)}
 
@@ -80,14 +87,11 @@ def phi_coefficient(labels_orig: np.ndarray, labels_pert: np.ndarray) -> float:
     # smaller as "0" and larger as "1" to canonicalize.
     union = sorted(set(a_unique.tolist()) | set(b_unique.tolist()))
     if len(union) > 2:
-        raise CfpromptError(
-            f"phi_coefficient: combined label set has more than 2 values: {union}"
-        )
+        raise CfpromptError(f"phi_coefficient: combined label set has more than 2 values: {union}")
     if len(union) < 2:
         # Single-value labels => marginal zero on the other class.
         raise DegenerateMetricError(
-            f"phi_coefficient: zero marginal — both arrays contain only label "
-            f"{union[0]!r}"
+            f"phi_coefficient: zero marginal — both arrays contain only label {union[0]!r}"
         )
     lo, hi = union
     a01 = (labels_orig == hi).astype(int)
@@ -102,7 +106,5 @@ def phi_coefficient(labels_orig: np.ndarray, labels_pert: np.ndarray) -> float:
     p_0 = p10 + p00
     denom_sq = p1_ * p0_ * p_1 * p_0
     if denom_sq == 0:
-        raise DegenerateMetricError(
-            "phi_coefficient: zero marginal in 2x2 contingency table"
-        )
+        raise DegenerateMetricError("phi_coefficient: zero marginal in 2x2 contingency table")
     return float((p11 * p00 - p10 * p01) / np.sqrt(denom_sq))
