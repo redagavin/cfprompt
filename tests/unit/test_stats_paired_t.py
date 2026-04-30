@@ -39,3 +39,7 @@ class TestPairedT:
         result = paired_t(target, baseline, metric_name="jsd")
         assert result.p_value == 1.0
         assert result.extra.get("degenerate") is True
+
+    def test_shape_mismatch_raises_value_error(self):
+        with pytest.raises(ValueError, match="shape mismatch"):
+            paired_t(np.array([1.0, 2.0]), np.array([1.0, 2.0, 3.0]), metric_name="jsd")

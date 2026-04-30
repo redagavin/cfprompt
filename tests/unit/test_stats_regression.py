@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from cfprompt.exceptions import ConfigError
 from cfprompt.metrics.regression import fit_difference
 from cfprompt.report import TestResult
 from cfprompt.stats import regression_test
@@ -38,3 +39,13 @@ class TestRegressionTest:
         assert result.extra["beta"] == fit.beta
         assert result.extra["se"] == fit.se
         assert result.extra["df_resid"] == fit.df_resid
+
+    def test_invalid_alternative_raises_config_error(self):
+        """Bad config should raise the typed cfprompt ConfigError, not a bare
+        ValueError, so callers can catch by exception class (R#9)."""
+        rng = np.random.default_rng(0)
+        direction = rng.choice([-1.0, 1.0], size=50)
+        delta = 0.3 * direction + rng.normal(0, 0.1, size=50)
+        fit = fit_difference(direction, delta)
+        with pytest.raises(ConfigError, match="alternative"):
+            regression_test(fit, alternative="bogus", n_distinct_samples=50)

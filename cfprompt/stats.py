@@ -15,7 +15,7 @@ from typing import Literal
 import numpy as np
 from scipy import stats as scipy_stats
 
-from .exceptions import DegenerateMetricError
+from .exceptions import ConfigError, DegenerateMetricError
 from .metrics.regression import RegressionFit
 from .report import TestResult
 
@@ -232,7 +232,7 @@ def regression_test(
     elif alternative == "greater":
         p_one = float(scipy_stats.t.sf(fit.t_stat, fit.df_resid))
     else:
-        raise ValueError(f"alternative must be 'greater' or 'less'; got {alternative!r}")
+        raise ConfigError(f"alternative must be 'greater' or 'less'; got {alternative!r}")
 
     extra = {
         "beta": fit.beta,
