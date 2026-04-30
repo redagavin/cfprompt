@@ -26,7 +26,7 @@ ruff format cfprompt tests
 
 ## Versioning
 
-Bump the appropriate version constant in `cfprompt/__init__.py` whenever the corresponding behavior changes:
+Bump the appropriate version constant in `cfprompt/_version.py` whenever the corresponding behavior changes:
 
 - `__version__` — package version (semver).
 - `__paraphrase_algorithm_version__` — bump when paraphrase prompt, refusal phrases, edit-distance logic, or select-best-undershoot semantics change in a way that invalidates cached paraphrase outputs.
