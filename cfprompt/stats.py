@@ -98,7 +98,9 @@ def bootstrap_diff(
     labels_baseline = np.asarray(labels_baseline)
     n = len(labels_orig)
 
-    rng = np.random.default_rng(seed)
+    # RandomState + randint matches scripts/compute_medqa_flip_rate_bootstrap.py
+    # bit-for-bit. default_rng/integers would give same formula but different bits.
+    rng = np.random.RandomState(seed)
 
     try:
         observed_target = metric_fn(labels_orig, labels_target)
@@ -129,7 +131,7 @@ def bootstrap_diff(
     diffs: list[float] = []
     n_dropped = 0
     for _ in range(n_bootstrap):
-        idx = rng.integers(0, n, size=n)
+        idx = rng.randint(0, n, size=n)
         try:
             t = metric_fn(labels_orig[idx], labels_target[idx])
             b = metric_fn(labels_orig[idx], labels_baseline[idx])
