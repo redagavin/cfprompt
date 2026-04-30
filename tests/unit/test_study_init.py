@@ -1,3 +1,5 @@
+import stat
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -116,6 +118,30 @@ class TestStudyInit:
                 outcome_class_column="outcome",
                 alternative="greater",
             )
+
+    def test_unwritable_cache_dir_raises_config_error(self, tmp_path: Path):
+        """A read-only cache_dir parent must surface as ConfigError, not raw
+        OSError/PermissionError, so users get an actionable message."""
+        readonly_parent = tmp_path / "readonly"
+        readonly_parent.mkdir()
+        # Strip write permission.
+        readonly_parent.chmod(stat.S_IRUSR | stat.S_IXUSR)
+        try:
+            target_dir = readonly_parent / "cache"
+            with pytest.raises(ConfigError, match=r"not writable"):
+                Study(
+                    data=self._df(),
+                    perturb_column="q",
+                    target_perturbation=lambda x: x.upper(),
+                    prompt_template="Q: {q}\nA:",
+                    target_model=_stub_model(),
+                    paraphrase_model=_stub_model("p"),
+                    classes=["A", "B"],
+                    cache_dir=target_dir,
+                )
+        finally:
+            # Restore permissions so tmp_path cleanup works.
+            readonly_parent.chmod(stat.S_IRWXU)
 
     def test_duplicate_data_index_raises(self):
         """Duplicate index values would silently collide in the per-sample

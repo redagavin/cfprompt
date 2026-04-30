@@ -219,7 +219,12 @@ class Study:
         self.max_retries = max_retries
         self.cache_dir = Path(cache_dir) if cache_dir is not None else None
         if self.cache_dir is not None:
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                self.cache_dir.mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                raise ConfigError(
+                    f"cache_dir={str(self.cache_dir)!r} is not writable: {e}"
+                ) from e
         self.seed = seed
         self.n_bootstrap = n_bootstrap
 
