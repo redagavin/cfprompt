@@ -1,12 +1,22 @@
-"""TestResult dataclass + Report container with serialization."""
+"""TestResult dataclass + Report container with serialization.
+
+JSON output contract: NaN and ±Infinity float values are sanitized to ``null``
+so emitted JSON conforms to RFC 8259 (the Python default ``allow_nan=True``
+emits literal ``NaN``/``Infinity`` tokens, which strict parsers reject).
+"""
 from __future__ import annotations
 
 import json
+import logging
+import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal
 
+import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -58,10 +68,10 @@ class Report:
     def to_json(self, path: str | Path) -> None:
         path = Path(path)
         payload = {
-            "results": [asdict(r) for r in self.results],
+            "results": [_json_safe(asdict(r)) for r in self.results],
             "metadata": _json_safe(self.metadata),
         }
-        path.write_text(json.dumps(payload, indent=2, default=str))
+        path.write_text(json.dumps(payload, indent=2, default=str, allow_nan=False))
 
     def to_excel(self, path: str | Path) -> None:
         path = Path(path)
@@ -77,9 +87,38 @@ class Report:
 
     def merge(self, other: Report) -> Report:
         """Concatenate `results` lists. Top-level metadata is from self;
-        per-source metadata preserved under metadata['merged_from']."""
+        per-source metadata preserved under metadata['merged_from'] as a
+        flat list of leaf metadatas (no nested merged_from chains).
+
+        Logs a WARNING listing keys whose values differ between the two
+        sources (excluding ``merged_from``); merge proceeds regardless.
+        """
+        self_leaf = {k: v for k, v in self.metadata.items() if k != "merged_from"}
+        other_leaf = {k: v for k, v in other.metadata.items() if k != "merged_from"}
+
+        divergent = sorted(
+            k for k in set(self_leaf) & set(other_leaf)
+            if self_leaf[k] != other_leaf[k]
+        )
+        if divergent:
+            logger.warning(
+                "Report.merge: metadata values differ between sources for keys: %s",
+                divergent,
+            )
+
+        existing = self.metadata.get("merged_from")
+        if isinstance(existing, list):
+            merged_from = list(existing)
+        else:
+            merged_from = [self_leaf]
+        other_existing = other.metadata.get("merged_from")
+        if isinstance(other_existing, list):
+            merged_from.extend(other_existing)
+        else:
+            merged_from.append(other_leaf)
+
         new_meta = dict(self.metadata)
-        new_meta["merged_from"] = [dict(self.metadata), dict(other.metadata)]
+        new_meta["merged_from"] = merged_from
         return Report(results=self.results + other.results, metadata=new_meta)
 
     def __repr__(self) -> str:
@@ -92,7 +131,19 @@ def _json_safe(obj):
         return {k: _json_safe(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [_json_safe(v) for v in obj]
-    if isinstance(obj, (int, float, bool, str)) or obj is None:
+    if isinstance(obj, np.ndarray):
+        return [_json_safe(v) for v in obj.tolist()]
+    # bool must be checked before int (bool is a subclass of int)
+    if isinstance(obj, bool):
+        return obj
+    if isinstance(obj, np.integer):
+        return int(obj)
+    if isinstance(obj, np.floating):
+        f = float(obj)
+        return None if (math.isnan(f) or math.isinf(f)) else f
+    if isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    if isinstance(obj, (int, str)) or obj is None:
         return obj
     return str(obj)
 

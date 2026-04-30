@@ -88,14 +88,21 @@ def fit_level(
     beta_pert = float(model.params[2])
     se_pert = float(model.bse[2])
     df_resid = int(model.df_resid)
-    t_q = _t_quantile_two_sided_975(df_resid)
+    # Use statsmodels' own conf_int so the CI quantile matches the SE/p-value
+    # convention statsmodels chose for cluster-robust covariance (z-quantile
+    # by default with use_t=False). Manually applying t_q(df_resid) on top of
+    # cluster bse mixes conventions and produces a wider interval than the
+    # underlying inference actually supports.
+    ci_row = model.conf_int(alpha=0.05)
+    ci_low_pert = float(np.asarray(ci_row)[2, 0])
+    ci_high_pert = float(np.asarray(ci_row)[2, 1])
     return RegressionFit(
         beta=beta_pert,
         se=se_pert,
         t_stat=float(model.tvalues[2]),
         p_value_two_sided=float(model.pvalues[2]),
-        ci_low_95=beta_pert - t_q * se_pert,
-        ci_high_95=beta_pert + t_q * se_pert,
+        ci_low_95=ci_low_pert,
+        ci_high_95=ci_high_pert,
         n_obs=int(model.nobs),
         df_resid=df_resid,
         r_squared=float(model.rsquared),
