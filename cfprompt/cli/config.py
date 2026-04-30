@@ -77,6 +77,15 @@ class StudyConfig(BaseModel):
                 "Directional analysis requires all of "
                 "{direction_column, outcome_class_column, alternative}."
             )
+        if self.extract_label is not None and any(
+            v is not None
+            for v in (self.direction_column, self.outcome_class_column, self.alternative)
+        ):
+            raise ValueError(
+                "Directional regression requires classification mode (set 'classes', "
+                "not 'extract_label'). Either drop direction_column/outcome_class_column/"
+                "alternative, or switch to classification mode."
+            )
         return self
 
 

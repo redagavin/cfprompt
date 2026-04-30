@@ -48,6 +48,17 @@ class TestStudyConfig:
         with pytest.raises(ValidationError):
             StudyConfig.model_validate(d)
 
+    def test_directional_with_extract_label_rejected(self):
+        d = self._yaml(
+            direction_column="dir",
+            outcome_class_column="oc",
+            alternative="greater",
+            extract_label="my:fn",
+        )
+        d.pop("classes")
+        with pytest.raises(ValidationError):
+            StudyConfig.model_validate(d)
+
     def test_safe_load_yaml_rejects_python_object(self, tmp_path):
         bad = tmp_path / "evil.yaml"
         bad.write_text('!!python/object/apply:os.system ["echo pwned"]')
