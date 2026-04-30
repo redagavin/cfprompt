@@ -182,6 +182,7 @@ class HFModel(Model):
             f"{self._tokenizer_wrapper.cache_id}"
             f"|dtype={self.dtype}"
             f"|class_prefix={self.class_prefix!r}"
+            f"|max_new_tokens={self.max_new_tokens}"
         )
 
     def close(self) -> None:
