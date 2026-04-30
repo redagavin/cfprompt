@@ -734,7 +734,9 @@ def _build_metadata(self, metrics: list[str], regression_model: str) -> dict:
                 np.abs(edits - bdf["target_edit_pct"].astype(float).to_numpy()) <= self.tolerance
             )
         )
-        retries_hit = int((bdf["retries_used"].astype(int) >= self.max_retries).sum())
+        # retries_used now reports total attempts (1..max_retries+1). The
+        # "hit max" branch is the one that exhausted all attempts.
+        retries_hit = int((bdf["retries_used"].astype(int) > self.max_retries).sum())
     else:
         edit_mean = 0.0
         edit_std = 0.0

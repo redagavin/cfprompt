@@ -45,6 +45,45 @@ class TestIsRefusal:
     def test_case_insensitive(self):
         assert is_refusal("I CANNOT HELP WITH THIS")
 
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Sorry, I cannot help with that.",
+            "I'm sorry, but I cannot fulfill this request.",
+            "I’m sorry, but I can't comply.",
+            "Unfortunately, I can't help with that.",
+            "Unfortunately, I cannot do that.",
+            "My apologies, I cannot answer.",
+            "I am unable to help with that.",
+            "I refuse to assist with this.",
+        ],
+    )
+    def test_polite_preamble_refusals(self, text):
+        """Refusals with polite preambles (Sorry / Unfortunately / My
+        apologies / I am unable / I refuse) must be detected even when they
+        are not a strict prefix of the response."""
+        assert is_refusal(text)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "As an aid to nursing care, the nurse...",
+            "As an aircraft was passing overhead...",
+            "As an aide-de-camp, the officer...",
+        ],
+    )
+    def test_as_an_ai_no_false_positive_on_aid(self, text):
+        """The literal 'as an ai' prefix used to trigger on 'as an aid…'.
+        With the bounded-prefix regex, the trigger requires the phrase to
+        be followed by ',' or whitespace, not by an extra letter."""
+        assert not is_refusal(text)
+
+    def test_unicode_normalization_nfkc(self):
+        """NFKC should fold a fullwidth-apostrophe variant or compatibility
+        forms into ASCII before matching."""
+        # U+02BC modifier letter apostrophe — used by some tokenizers.
+        assert is_refusal("I canʼt help with that.")
+
 
 @pytest.mark.unit
 class TestAdjustedParaphraseResult:

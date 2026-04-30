@@ -56,6 +56,25 @@ class TestGenerateAdjustedParaphrase:
         assert result.paraphrase == modified
         assert abs(result.actual_edit_pct - 10.0) <= 0.5
         assert model.calls == 1
+        # retries_used reports total attempts; first-attempt success → 1.
+        assert result.retries_used == 1
+
+    def test_retries_used_counts_all_attempts_on_full_refusal(self):
+        """With max_retries=2 the loop runs 3 attempts; if all refuse,
+        retries_used must be 3 (not 2)."""
+        tok = _FakeTokenizer()
+        original = " ".join(f"w{i}" for i in range(10))
+        model = _ScriptedModel(["I can't help with that."] * 3)
+        result = generate_adjusted_paraphrase(
+            text=original,
+            target_edit_pct=10.0,
+            paraphrase_model=model,
+            tokenizer=tok,
+            tolerance=0.5,
+            max_retries=2,
+        )
+        assert result.refused is True
+        assert result.retries_used == 3
 
     def test_refusal_then_success(self):
         tok = _FakeTokenizer()

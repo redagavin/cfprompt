@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import unicodedata
 from dataclasses import dataclass
 
 from .tokenization import token_edit_distance_pct
@@ -10,6 +12,8 @@ from .tokenization import token_edit_distance_pct
 _logger = logging.getLogger("cfprompt")
 
 
+# Strong-prefix patterns: only match when the (normalized) text starts with
+# one of these phrases. Used for clear-cut "I can't…" / "I cannot…" leads.
 REFUSAL_PHRASES = [
     "i can't help with",
     "i cannot help with",
@@ -41,27 +45,68 @@ REFUSAL_PHRASES = [
     "i cannot meet the requirement",
     "i can't generate a paraphrase",
     "i cannot generate a paraphrase",
-    "as an ai",
-    "as a language model",
 ]
 
 
-def is_refusal(text: str) -> bool:
-    """Detect refusal-ish responses by phrase prefix match.
+# "As an AI" / "As a language model" need stricter boundaries: bare prefix
+# "as an ai" matches "as an aid…" (false positive). Require the phrase to be
+# followed by punctuation, whitespace, or end-of-text.
+_REFUSAL_PREFIX_REGEXES = [
+    re.compile(r"^as an ai(?:[,\s]|$)"),
+    re.compile(r"^as a language model(?:[,\s]|$)"),
+]
 
-    Case-insensitive; smart-quote apostrophe (U+2019) is normalized.
+
+# Substring patterns: refusals often appear after a polite preamble
+# ("I'm sorry, but I cannot…"). Anchor with \b to avoid mid-word collisions.
+_REFUSAL_SUBSTRING_REGEXES = [
+    re.compile(r"\b(?:i'?m sorry,? but i (?:cannot|can not|can't|won't))\b"),
+    re.compile(r"\b(?:unfortunately,? i (?:cannot|can'?t|won'?t))\b"),
+    re.compile(r"\b(?:my apologies,? i (?:cannot|can'?t))\b"),
+    re.compile(r"\b(?:i (?:am unable|am not able|won'?t|can'?t|refuse) to (?:help|assist|do))\b"),
+    re.compile(r"^sorry,? i (?:cannot|can'?t|won'?t)\b"),
+]
+
+
+def _normalize_for_refusal(text: str) -> str:
+    """NFKC-normalize and fold typographic apostrophes to ASCII before
+    case-folding. NFKC handles a wide range of compatibility variants;
+    the explicit replacements cover apostrophe glyphs that NFKC leaves
+    alone (U+2019, U+2018, U+02BC)."""
+    nfkc = unicodedata.normalize("NFKC", text)
+    folded = nfkc.replace("’", "'").replace("‘", "'").replace("ʼ", "'")
+    return folded.strip().lower()
+
+
+def is_refusal(text: str) -> bool:
+    """Detect refusal-ish responses.
+
+    Three layers, all case-insensitive after Unicode/apostrophe normalization:
+      1. Strong-prefix match against REFUSAL_PHRASES (text starts with phrase).
+      2. Bounded prefix regexes ("as an ai," / "as a language model,…")
+         that avoid false positives like "as an aid…".
+      3. Substring regexes that match polite-preamble refusals anywhere in
+         the response ("I'm sorry, but I cannot…", "Unfortunately, I can't…").
     """
-    normalized = text.strip().lower().replace("’", "'")
-    return any(normalized.startswith(p) for p in REFUSAL_PHRASES)
+    normalized = _normalize_for_refusal(text)
+    if any(normalized.startswith(p) for p in REFUSAL_PHRASES):
+        return True
+    if any(rx.match(normalized) for rx in _REFUSAL_PREFIX_REGEXES):
+        return True
+    return any(rx.search(normalized) for rx in _REFUSAL_SUBSTRING_REGEXES)
 
 
 @dataclass(frozen=True)
 class AdjustedParaphraseResult:
-    """Outcome of one paraphrase request (after retries)."""
+    """Outcome of one paraphrase request (after retries).
+
+    `retries_used` is the total number of model attempts the loop made
+    (success on the first attempt -> 1; full refusal at max_retries=N -> N+1).
+    """
 
     paraphrase: str  # the chosen paraphrase text (or original on full refusal)
     actual_edit_pct: float  # achieved token edit %; 0.0 when refused
-    retries_used: int  # number of retries that produced any paraphrase
+    retries_used: int  # total number of model attempts (>=1)
     refused: bool  # True iff every attempt was a refusal
 
 
@@ -161,7 +206,7 @@ def generate_adjusted_paraphrase(
             return AdjustedParaphraseResult(
                 paraphrase=candidate,
                 actual_edit_pct=actual_pct,
-                retries_used=attempt_num,
+                retries_used=attempt_num + 1,
                 refused=False,
             )
         current_prompt = _RETRY_PROMPT.format(
@@ -175,7 +220,7 @@ def generate_adjusted_paraphrase(
         return AdjustedParaphraseResult(
             paraphrase=text,
             actual_edit_pct=0.0,
-            retries_used=max_retries,
+            retries_used=max_retries + 1,
             refused=True,
         )
 
@@ -183,6 +228,6 @@ def generate_adjusted_paraphrase(
     return AdjustedParaphraseResult(
         paraphrase=best["paraphrase"],
         actual_edit_pct=best["actual_pct"],
-        retries_used=max_retries,
+        retries_used=max_retries + 1,
         refused=False,
     )
