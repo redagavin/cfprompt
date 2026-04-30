@@ -327,25 +327,34 @@ class HFModel(Model):
                 )
             first_token_ids.append(ids[0])
 
-        seen: dict[int, str] = {}
+        # Group classes by their first-token id so we can report ALL
+        # colliding groups at once. This matters for users with large
+        # class lists ("yes", "yeah", "yep", "no", "nope"): reporting only
+        # the first pair forces them through repeated whack-a-mole runs to
+        # discover the others.
+        groups: dict[int, list[str]] = {}
         for cls, tid in zip(classes, first_token_ids, strict=False):
-            if tid in seen:
-                hint = (
-                    " Try class_prefix='' (SentencePiece tokenizers like "
-                    "Llama 1/2 collapse a leading space to the single '▁' "
-                    "token, which causes this collision)."
-                    if self.class_prefix == " "
-                    else ""
-                )
-                raise ClassificationModeError(
-                    f"Classes {seen[tid]!r} and {cls!r} both tokenize to "
-                    f"first token id {tid} under "
-                    f"{self._tokenizer_wrapper.cache_id} with class_prefix="
-                    f"{self.class_prefix!r}; first-token scoring would "
-                    f"conflate them.{hint} Otherwise choose distinct class "
-                    f"names or use free-form mode with a custom extract_label."
-                )
-            seen[tid] = cls
+            groups.setdefault(tid, []).append(cls)
+        colliding = {tid: cs for tid, cs in groups.items() if len(cs) > 1}
+        if colliding:
+            hint = (
+                " Try class_prefix='' (SentencePiece tokenizers like "
+                "Llama 1/2 collapse a leading space to the single '▁' "
+                "token, which causes this collision)."
+                if self.class_prefix == " "
+                else ""
+            )
+            details = "; ".join(
+                f"first token id {tid}: {cs!r}"
+                for tid, cs in sorted(colliding.items())
+            )
+            raise ClassificationModeError(
+                f"First-token collisions under {self._tokenizer_wrapper.cache_id} "
+                f"with class_prefix={self.class_prefix!r}: {details}. "
+                f"first-token scoring would conflate the listed classes.{hint} "
+                f"Otherwise choose distinct class names or use free-form mode "
+                f"with a custom extract_label."
+            )
         return first_token_ids
 
     def score_classes(self, prompts, classes, per_prompt_seeds=None):

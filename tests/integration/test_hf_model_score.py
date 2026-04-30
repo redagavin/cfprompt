@@ -52,3 +52,15 @@ class TestHFModelScoreClasses:
         prompts = ["Q:\nA:"]
         with pytest.raises(ClassificationModeError, match="first token"):
             tiny_hf.score_classes(prompts, ["yessir", "yep"])
+
+    def test_multiple_collision_groups_reported_in_one_error(self, tiny_hf):
+        # Two distinct collision groups under the tiny Llama tokenizer
+        # (verified empirically): y-prefix ("yessir","yep") -> id 343 and
+        # n-prefix ("no","nope") -> id 694. Both groups must appear in a
+        # single error so the user fixes them in one round-trip.
+        prompts = ["Q:\nA:"]
+        with pytest.raises(ClassificationModeError) as exc_info:
+            tiny_hf.score_classes(prompts, ["yessir", "yep", "no", "nope"])
+        msg = str(exc_info.value)
+        for cls in ("'yessir'", "'yep'", "'no'", "'nope'"):
+            assert cls in msg, f"missing {cls} in error message: {msg}"
