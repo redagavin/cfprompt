@@ -143,6 +143,28 @@ class TestStudyInit:
             # Restore permissions so tmp_path cleanup works.
             readonly_parent.chmod(stat.S_IRWXU)
 
+    def test_reserved_column_name_raises(self):
+        """User-supplied data containing a column name cfprompt writes to
+        (e.g. 'label_orig', 'sample_id') would silently overwrite the
+        package's output."""
+        df = pd.DataFrame(
+            {
+                "q": ["a", "b"],
+                "outcome": ["A", "B"],
+                "label_orig": ["X", "Y"],  # reserved
+            }
+        )
+        with pytest.raises(ConfigError, match=r"reserved names"):
+            Study(
+                data=df,
+                perturb_column="q",
+                target_perturbation=lambda x: x.upper(),
+                prompt_template="Q: {q}\nA:",
+                target_model=_stub_model(),
+                paraphrase_model=_stub_model("p"),
+                classes=["A", "B"],
+            )
+
     def test_duplicate_data_index_raises(self):
         """Duplicate index values would silently collide in the per-sample
         cache key, corrupting cached paraphrase/inference results."""

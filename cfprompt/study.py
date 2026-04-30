@@ -46,6 +46,29 @@ from .tokenization import token_edit_distance_pct
 _logger = logging.getLogger("cfprompt")
 
 
+_RESERVED_COLUMNS = frozenset(
+    {
+        "sample_id",
+        "original",
+        "target_perturbed",
+        "baseline_perturbed",
+        "target_edit_pct",
+        "baseline_edit_pct",
+        "baseline_refused",
+        "retries_used",
+        "probs_orig",
+        "probs_target",
+        "probs_base",
+        "label_orig",
+        "label_target",
+        "label_base",
+        "generation_orig",
+        "generation_target",
+        "generation_base",
+    }
+)
+
+
 def _init_drop_counts() -> dict[str, int]:
     return {
         "zero_edit": 0,
@@ -152,6 +175,13 @@ class Study:
             raise ConfigError(
                 f"perturb_column={perturb_column!r} not found in data; "
                 f"columns are: {list(data.columns)}"
+            )
+
+        conflict = _RESERVED_COLUMNS & set(data.columns)
+        if conflict:
+            raise ConfigError(
+                f"data has columns {sorted(conflict)} that conflict with cfprompt "
+                f"reserved names. Rename or drop them before passing to Study."
             )
 
         if not data.index.is_unique:
