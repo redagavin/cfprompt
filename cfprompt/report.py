@@ -31,7 +31,6 @@ class TestResult:
     ci_low: float | None = None
     ci_high: float | None = None
     ci_kind: Literal["percentile", "asymptotic"] | None = None
-    effect_size: float | None = None
     n: int = 0
     extra: dict = field(default_factory=dict)
 
@@ -107,10 +106,7 @@ class Report:
             )
 
         existing = self.metadata.get("merged_from")
-        if isinstance(existing, list):
-            merged_from = list(existing)
-        else:
-            merged_from = [self_leaf]
+        merged_from = list(existing) if isinstance(existing, list) else [self_leaf]
         other_existing = other.metadata.get("merged_from")
         if isinstance(other_existing, list):
             merged_from.extend(other_existing)
