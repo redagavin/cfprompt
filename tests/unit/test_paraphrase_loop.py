@@ -7,10 +7,23 @@ from cfprompt.paraphrase import (
 
 
 class _FakeTokenizer:
-    """Whitespace tokenizer returning integer ids by hashing words."""
+    """Whitespace tokenizer with a deterministic word-id mapping.
+
+    Python's built-in `hash()` is randomized by PYTHONHASHSEED, so a class
+    that returned `hash(w) & 0xFFFF` would produce different ids per
+    process. The vocab assigns ids in first-seen order so token edit
+    distances are stable across runs.
+    """
+
+    _vocab: dict[str, int] = {}
 
     def encode(self, text: str) -> list[int]:
-        return [hash(w) & 0xFFFF for w in text.split()]
+        ids = []
+        for w in text.split():
+            if w not in self._vocab:
+                self._vocab[w] = len(self._vocab)
+            ids.append(self._vocab[w])
+        return ids
 
     @property
     def cache_id(self) -> str:
