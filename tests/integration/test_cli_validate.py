@@ -58,6 +58,9 @@ typo_field: yes
 """)
         result = runner.invoke(app, ["validate", str(cfg), "--no-import"])
         assert result.exit_code == 1
+        # The error message must name the offending field so the user can
+        # fix their config without grepping through Pydantic noise.
+        assert "typo_field" in result.output
 
     def test_nonexistent_callable_without_no_import_exits_1(self, tmp_path: Path):
         cfg = tmp_path / "config.yaml"
