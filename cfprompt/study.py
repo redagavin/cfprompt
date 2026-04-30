@@ -852,6 +852,11 @@ Study.run_all = _study_run_all
 
 
 def _study_save(self, path) -> None:
+    """Serialize this Study to `path` as a pickle.
+
+    SECURITY: Pickle format. Trust caveat: only load .pkl files you
+    produced yourself. See Study.load() for the matching warning.
+    """
     payload = {
         "config": {
             "perturb_column": self.perturb_column,
@@ -891,6 +896,11 @@ def _study_load(
     extract_label=None,
     allow_cache_id_mismatch: bool = False,
 ):
+    """Deserialize a Study from `path`.
+
+    SECURITY: Pickle format — equivalent to executing arbitrary Python
+    on load. NEVER load a .pkl from an untrusted source.
+    """
     with open(path, "rb") as f:
         payload = pickle.load(f)
 
