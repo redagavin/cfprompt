@@ -21,7 +21,9 @@ anyio==4.13.0 \
 build==1.4.4 \
     --hash=sha256:8c3f48a6090b39edec1a273d2d57949aaf13723b01e02f9d518396887519f64d \
     --hash=sha256:f832ae053061f3fb524af812dc94b8b84bac6880cd587630e3b5d91a6a9c1703
-    # via pip-tools
+    # via
+    #   cfprompt (pyproject.toml)
+    #   pip-tools
 certifi==2026.4.22 \
     --hash=sha256:3cb2210c8f88ba2318d29b0388d1023c8492ff72ecdde4ebdaddbb13a31b1c4a \
     --hash=sha256:8d455352a37b71bf76a79caa83a3d6c25afee4a385d632127b6afb3963f1c580
