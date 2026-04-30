@@ -57,7 +57,7 @@ class TestStudyTest:
         assert r.p_value_kind == "two-sided"
         assert r.statistic is not None
         assert 0.0 <= r.p_value <= 1.0
-        # The Dirichlet target alphas [1.0, 4.0] differ strongly from baseline
+        # The Dirichlet target alphas [0.5, 8.0] differ strongly from baseline
         # alphas [2.1, 1.9], so JSD(orig,target) should systematically exceed
         # JSD(orig,baseline) at N=20.
         assert r.p_value < 0.05
