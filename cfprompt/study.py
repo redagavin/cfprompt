@@ -252,9 +252,7 @@ class Study:
             try:
                 self.cache_dir.mkdir(parents=True, exist_ok=True)
             except OSError as e:
-                raise ConfigError(
-                    f"cache_dir={str(self.cache_dir)!r} is not writable: {e}"
-                ) from e
+                raise ConfigError(f"cache_dir={str(self.cache_dir)!r} is not writable: {e}") from e
         self.seed = seed
         self.n_bootstrap = n_bootstrap
 

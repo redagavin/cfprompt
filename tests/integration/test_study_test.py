@@ -122,9 +122,7 @@ class TestStudyTest:
         """When every free-form sample fails extraction, the error message
         must include up to 3 truncated example raw generations to help the
         user fix their extract_label."""
-        df = pd.DataFrame(
-            {"q": [f"alpha beta gamma delta epsilon {i}" for i in range(2)]}
-        )
+        df = pd.DataFrame({"q": [f"alpha beta gamma delta epsilon {i}" for i in range(2)]})
         # Long generation that will be truncated (>200 chars).
         long_gen = "X" * 250
         target = _StubModel(
@@ -136,9 +134,7 @@ class TestStudyTest:
         )
         para = _StubModel(
             cache_id="p",
-            gens_per_call=[
-                [f"alpha BeTa gamma delta epsilon {i}"] for i in range(2)
-            ],
+            gens_per_call=[[f"alpha BeTa gamma delta epsilon {i}"] for i in range(2)],
         )
         s = Study(
             data=df,

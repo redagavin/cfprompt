@@ -242,9 +242,7 @@ class TestStudyRunInference:
         s.generate_baselines()
         with caplog.at_level(logging.WARNING, logger="cfprompt"):
             s.run_inference()
-        warn_lines = [
-            r.getMessage() for r in caplog.records if r.levelno == logging.WARNING
-        ]
+        warn_lines = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         per_sample = [m for m in warn_lines if "extract_label raised" in m]
         # Inference loop breaks after first failing condition per sample, so
         # n_extraction_raised == n_samples == 15. First 10 logged, then summary.

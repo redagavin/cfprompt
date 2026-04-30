@@ -142,9 +142,7 @@ class TestStudySaveLoad:
         loaded.reset_inference()
         loaded.run_inference()
 
-    def test_run_inference_validates_cache_id_when_baselines_preloaded(
-        self, tmp_path: Path
-    ):
+    def test_run_inference_validates_cache_id_when_baselines_preloaded(self, tmp_path: Path):
         """When baselines are already cached and run_inference is called
         with a cache_id mismatch, the validation must still fire instead of
         silently using the loaded baselines."""
@@ -165,9 +163,7 @@ class TestStudySaveLoad:
         with pytest.raises(ConfigError, match=r"cache_id"):
             loaded.run_inference()
 
-    def test_freeform_load_without_extract_label_then_run_inference_raises(
-        self, tmp_path: Path
-    ):
+    def test_freeform_load_without_extract_label_then_run_inference_raises(self, tmp_path: Path):
         """Loading a free-form study without re-supplying extract_label
         leaves the XOR invariant violated. run_inference() must surface
         a StageNotRunError pointing at the fix."""
@@ -275,9 +271,7 @@ class TestStudySaveLoad:
 
         with caplog.at_level(logging.WARNING, logger="cfprompt"):
             s.reextract(extract_label=_always_raise)
-        warn_lines = [
-            r.getMessage() for r in caplog.records if r.levelno == logging.WARNING
-        ]
+        warn_lines = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
         per_sample_warnings = [m for m in warn_lines if "extract_label raised" in m]
         # 15 samples × 1 raise (loop breaks after first cond) → 15 raises;
         # only 10 logged at WARN per-sample, then 1 summary.
@@ -319,9 +313,7 @@ class TestStudySaveLoad:
         original_labels = list(s._inference_df["label_orig"])
 
         # Re-extract with a stricter extractor that returns None on "nope".
-        s.reextract(
-            extract_label=lambda r: r.split(": ")[1] if r.startswith("RESULT") else None
-        )
+        s.reextract(extract_label=lambda r: r.split(": ")[1] if r.startswith("RESULT") else None)
         # All rows survive.
         assert len(s._inference_df) == 3
         new_labels = list(s._inference_df["label_orig"])
