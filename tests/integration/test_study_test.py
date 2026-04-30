@@ -168,6 +168,32 @@ class TestStudyTest:
         # Short generation surfaced verbatim.
         assert "short fail" in msg
 
+    def test_kl_metric_returns_report(self):
+        s = self._classification_study()
+        report = s.run_all(metrics=["kl"])
+        assert len(report.results) == 1
+        r = report.results[0]
+        assert r.metric == "kl"
+        assert r.test == "paired_t"
+
+    def test_mi_metric_returns_report(self):
+        s = self._classification_study()
+        report = s.run_all(metrics=["mi"])
+        assert report.results[0].metric == "mi"
+        assert report.results[0].test == "bootstrap"
+
+    def test_phi_metric_returns_report(self):
+        s = self._classification_study()
+        report = s.run_all(metrics=["phi"])
+        assert report.results[0].metric == "phi"
+        assert report.results[0].test == "bootstrap"
+
+    def test_multiple_metrics_returns_one_result_each(self):
+        s = self._classification_study()
+        report = s.run_all(metrics=["jsd", "flip_rate", "kl"])
+        assert len(report.results) == 3
+        assert {r.metric for r in report.results} == {"jsd", "flip_rate", "kl"}
+
     def test_regression_outcome_class_lookup_raises_cfprompt_error(self):
         """If inference_df has outcome_class values not in self.classes (e.g.
         the user mutated the frame after preflight), _run_regression must
