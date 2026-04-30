@@ -9,6 +9,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 _BLOCKED_MODEL_KWARGS = frozenset({"api_key", "secret"})
+_DEPRECATED_MODEL_KWARGS = frozenset({"max_concurrent"})  # removed in v0.1.0
 
 
 class ModelConfig(BaseModel):
@@ -23,6 +24,17 @@ class ModelConfig(BaseModel):
             raise ValueError(
                 f"model config must not contain secret kwargs {sorted(leaked)}; "
                 f"use OPENAI_API_KEY env var instead"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _reject_deprecated(self) -> ModelConfig:
+        deprecated = set(self.model_extra or {}) & _DEPRECATED_MODEL_KWARGS
+        if deprecated:
+            raise ValueError(
+                f"model config contains deprecated kwargs {sorted(deprecated)}; "
+                f"max_concurrent was removed in v0.1.0 (single-threaded; reserved for v2 async). "
+                f"Remove these from your YAML."
             )
         return self
 

@@ -93,6 +93,14 @@ class TestStudyConfig:
         with pytest.raises(ValidationError, match="secret kwargs"):
             StudyConfig.model_validate(d)
 
+    def test_max_concurrent_in_model_config_rejected(self):
+        from cfprompt.cli.config import ModelConfig
+
+        with pytest.raises(ValidationError, match=r"max_concurrent"):
+            ModelConfig.model_validate(
+                {"type": "OpenAIModel", "name": "gpt-4", "max_concurrent": 4}
+            )
+
 
 @pytest.mark.unit
 class TestResolveCallable:
