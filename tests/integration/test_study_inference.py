@@ -251,6 +251,10 @@ class TestStudyRunInference:
         s.run_inference()
         assert len(s._inference_df) == 0
         assert s._drop_counts["openai_missing_class"] == 1
+        assert s._drop_counts["zero_edit"] == 0
+        assert s._drop_counts["tokenization_failed"] == 0
+        assert s._drop_counts["extraction_returned_none"] == 0
+        assert s._drop_counts["extraction_raised"] == 0
 
     def test_tokenization_failed_drops_sample(self):
         """When the target_model.tokenizer.encode raises, the sample is
@@ -293,3 +297,7 @@ class TestStudyRunInference:
         s.generate_baselines()
         assert len(s._baselines_df) == 0
         assert s._drop_counts["tokenization_failed"] == 1
+        assert s._drop_counts["openai_missing_class"] == 0
+        assert s._drop_counts["zero_edit"] == 0
+        assert s._drop_counts["extraction_returned_none"] == 0
+        assert s._drop_counts["extraction_raised"] == 0
