@@ -17,6 +17,10 @@ pytest -m smoke                       # downloads small models
 pytest --cov=cfprompt                 # with coverage
 ```
 
+### Coverage exclusions
+
+`cfprompt/cli/run.py` is excluded from coverage in `pyproject.toml` because exercising its full pipeline requires real models (HF or OpenAI). The integration tests cover individual pieces (`_resolve_callable`, `StudyConfig` validation, `init`, `validate`); end-to-end coverage of `run_command` itself is exercised manually via `cfprompt run` against tiny models. If you add new branches to `run.py`, add corresponding tests via the smoke marker (`pytest -m smoke`).
+
 ## Lint and format
 
 ```bash
