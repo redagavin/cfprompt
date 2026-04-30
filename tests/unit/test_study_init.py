@@ -117,6 +117,24 @@ class TestStudyInit:
                 alternative="greater",
             )
 
+    def test_duplicate_data_index_raises(self):
+        """Duplicate index values would silently collide in the per-sample
+        cache key, corrupting cached paraphrase/inference results."""
+        df = pd.DataFrame(
+            {"q": ["a", "b", "c"], "outcome": ["A", "B", "A"]},
+            index=[0, 1, 0],
+        )
+        with pytest.raises(ConfigError, match=r"duplicate"):
+            Study(
+                data=df,
+                perturb_column="q",
+                target_perturbation=lambda x: x.upper(),
+                prompt_template="Q: {q}\nA:",
+                target_model=_stub_model(),
+                paraphrase_model=_stub_model("p"),
+                classes=["A", "B"],
+            )
+
     def test_outcome_class_value_not_in_classes_raises(self):
         df = pd.DataFrame({"q": ["a"], "outcome": ["Z"], "dir": [1]})
         with pytest.raises(ConfigError, match="invalid values"):

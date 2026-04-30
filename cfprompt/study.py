@@ -154,6 +154,16 @@ class Study:
                 f"columns are: {list(data.columns)}"
             )
 
+        if not data.index.is_unique:
+            n_unique = (~data.index.duplicated()).sum()
+            raise ConfigError(
+                f"data.index has {len(data) - n_unique} duplicate values; cfprompt "
+                f"uses the index value as the per-sample cache key, so duplicates "
+                f"would silently corrupt cached paraphrase/inference results. "
+                f"Reset with data.reset_index(drop=True) or use data.set_index(...) "
+                f"with a unique column."
+            )
+
         directional_kwargs = {
             "direction_column": direction_column,
             "outcome_class_column": outcome_class_column,
