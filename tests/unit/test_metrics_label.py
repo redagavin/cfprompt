@@ -20,7 +20,7 @@ class TestFlipRate:
         a = np.array(["A", "B", "A", "B"])
         b = np.array(["A", "A", "B", "B"])
         # Flips at indices 1 and 2 → 2/4 = 0.5
-        assert flip_rate(a, b) == 0.5
+        assert flip_rate(a, b) == pytest.approx(0.5)
 
 
 @pytest.mark.unit
@@ -81,4 +81,12 @@ class TestPhi:
         a = np.array([0, 1, 2, 0])
         b = np.array([0, 1, 1, 0])
         with pytest.raises(CfpromptError, match="binary"):
+            phi_coefficient(a, b)
+
+    def test_combined_label_set_more_than_2_raises(self):
+        """Each array is binary individually, but the union of label sets
+        has > 2 distinct values. Phi is undefined here and must raise."""
+        a = np.array([0, 0, 1, 1])
+        b = np.array([2, 2, 3, 3])
+        with pytest.raises(CfpromptError, match="combined label set"):
             phi_coefficient(a, b)
