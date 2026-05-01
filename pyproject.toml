@@ -9,7 +9,7 @@ description = "Counterfactual prompting with adjusted paraphrase baselines"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11,<3.12"
-authors = [{name = "Gavin", email = "yzh_xjy@126.com"}]
+authors = [{name = "Zihao Yang", email = "yzh_xjy@126.com"}]
 dependencies = [
     "numpy>=2.0",
     "pandas>=2.2",
