@@ -5,7 +5,7 @@ the constants without triggering the import cycle that arises when re-exports
 in cfprompt/__init__.py run before the constants are bound.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 # Bumped whenever paraphrase prompt template, refusal phrases, edit-distance
 # logic, or select-best-undershoot semantics change in a way that affects
